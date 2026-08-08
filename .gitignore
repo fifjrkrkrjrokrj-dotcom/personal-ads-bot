@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.env
+.env.*
+
+# Telegram session files & backups - NEVER commit these
+*.session
+*.session-shm
+*.session-wal
+sessions/
+zips/
+downloads/
+*.log

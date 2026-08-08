@@ -1,0 +1,6 @@
+telethon
+nest_asyncio
+pymongo[srv]
+python-dotenv
+aiohttp
+cryptg

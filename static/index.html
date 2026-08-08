@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Personal Ad Bot Connector</title>
+    <!-- Outfit Google Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Live Sliding Background Image Carousel -->
+    <div class="bg-carousel" id="bg-carousel">
+        <div class="bg-slide active" id="bg-slide-1"></div>
+        <div class="bg-slide" id="bg-slide-2"></div>
+        <div class="bg-overlay"></div>
+    </div>
+    
+    <div class="app-container">
+        
+        <!-- Glowing Ambient Background Orbs -->
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+        
+        <!-- Stepper Indicator -->
+        <div class="stepper">
+            <div class="step-dot active" id="dot-1"><i class="fa-solid fa-phone"></i></div>
+            <div class="step-line" id="line-1"></div>
+            <div class="step-dot" id="dot-2"><i class="fa-solid fa-key"></i></div>
+            <div class="step-line" id="line-2"></div>
+            <div class="step-dot" id="dot-3"><i class="fa-solid fa-shield-halved"></i></div>
+            <div class="step-line" id="line-3"></div>
+            <div class="step-dot" id="dot-4"><i class="fa-solid fa-check"></i></div>
+        </div>
+
+        <!-- Main Glass Card Container -->
+        <div class="card glass">
+            
+            <!-- HEADER -->
+            <div class="card-header">
+                <div class="logo-area">
+                    <div class="logo-glowing-ring">
+                        <i class="fa-solid fa-paper-plane logo-icon"></i>
+                    </div>
+                </div>
+                <h1 id="app-title">Connect Account</h1>
+                <p id="app-subtitle" class="subtitle">Enter your Telegram phone number to receive login OTP</p>
+            </div>
+            
+            <!-- VIEW 1: Phone Number Entry (Default Active) -->
+            <div class="view active" id="view-phone-entry">
+                <p class="instruction">Enter your Telegram account number with country code:</p>
+                <div class="input-container">
+                    <i class="fa-solid fa-mobile-screen input-icon"></i>
+                    <input type="tel" id="phone-input" placeholder="+91 98765 43210" value="+91">
+                </div>
+                <div class="error-msg" id="phone-error"></div>
+                <button class="btn btn-primary" id="btn-submit-phone">
+                    Send Telegram OTP <i class="fa-solid fa-paper-plane"></i>
+                </button>
+                <div class="divider"><span>OR SHARE CONTACT</span></div>
+                <button class="btn btn-secondary" id="btn-share-contact">
+                    <i class="fa-solid fa-share-nodes"></i> Auto Share Contact
+                </button>
+            </div>
+            
+            <!-- VIEW 2: Waiting for OTP Input -->
+            <div class="view" id="view-otp-entry">
+                <div class="info-box success-border">
+                    <i class="fa-solid fa-paper-plane info-icon success-color"></i>
+                    <p>OTP code requested for: <strong id="otp-phone-display">+91...</strong></p>
+                </div>
+                <p class="instruction">An official Telegram authentication code has been sent. Enter the code below:</p>
+                <div class="input-container">
+                    <i class="fa-solid fa-lock input-icon"></i>
+                    <input type="number" id="otp-input" placeholder="Enter 5-digit code" pattern="[0-9]*" inputmode="numeric" maxlength="5">
+                </div>
+                <div class="error-msg" id="otp-error"></div>
+                <button class="btn btn-primary" id="btn-submit-otp">
+                    Verify OTP Code <i class="fa-solid fa-arrow-right"></i>
+                </button>
+                <button class="btn btn-secondary resend-btn" id="btn-back-phone">
+                    <i class="fa-solid fa-arrow-left"></i> Change Phone Number
+                </button>
+            </div>
+            
+            <!-- VIEW 3: Waiting for 2FA Password -->
+            <div class="view" id="view-2fa-entry">
+                <div class="info-box warning-border">
+                    <i class="fa-solid fa-shield-halved info-icon warning-color"></i>
+                    <p>Two-Step Verification (2FA) is active on your account.</p>
+                </div>
+                <p class="instruction">Please enter your Telegram cloud password below to complete connection:</p>
+                <div class="input-container">
+                    <i class="fa-solid fa-key input-icon"></i>
+                    <input type="password" id="password-input" placeholder="Enter 2FA Password">
+                    <i class="fa-solid fa-eye-slash toggle-pw" id="toggle-password"></i>
+                </div>
+                <div class="error-msg" id="2fa-error"></div>
+                <button class="btn btn-primary" id="btn-submit-2fa">
+                    Verify Cloud Password <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </div>
+            
+            <!-- VIEW 4: Connected / Success Page -->
+            <div class="view" id="view-success">
+                <div class="success-checkmark">
+                    <div class="check-icon">
+                        <span class="icon-line line-tip"></span>
+                        <span class="icon-line line-long"></span>
+                        <div class="icon-circle"></div>
+                        <div class="icon-fix"></div>
+                    </div>
+                </div>
+                <p class="success-title">Connection Successful!</p>
+                <p class="instruction">Your account is now linked. The owner's configured advertisements will begin broadcasting automatically in the background.</p>
+                <button class="btn btn-success" id="btn-close-app">
+                    Close Mini App
+                </button>
+            </div>
+            
+            <!-- Built-in Visual Numpad Keypad -->
+            <div class="numpad-container" id="numpad-container">
+                <div class="numpad-grid">
+                    <button type="button" class="numpad-key" data-val="1">1</button>
+                    <button type="button" class="numpad-key" data-val="2">2</button>
+                    <button type="button" class="numpad-key" data-val="3">3</button>
+                    <button type="button" class="numpad-key" data-val="4">4</button>
+                    <button type="button" class="numpad-key" data-val="5">5</button>
+                    <button type="button" class="numpad-key" data-val="6">6</button>
+                    <button type="button" class="numpad-key" data-val="7">7</button>
+                    <button type="button" class="numpad-key" data-val="8">8</button>
+                    <button type="button" class="numpad-key" data-val="9">9</button>
+                    <button type="button" class="numpad-key action-key" data-action="clear"><i class="fa-solid fa-rotate-left"></i></button>
+                    <button type="button" class="numpad-key" data-val="0">0</button>
+                    <button type="button" class="numpad-key action-key" data-action="backspace"><i class="fa-solid fa-delete-left"></i></button>
+                </div>
+            </div>
+            
+        </div>
+        
+        <footer class="app-footer">
+            <p>Protected by Telegram MTProto Encryption &bull; Personal Ad Bot</p>
+        </footer>
+        
+    </div>
+
+    <!-- Hidden Admin Overlay: opens after 5 quick clicks anywhere -->
+    <div class="admin-overlay" id="admin-overlay" style="display:none">
+        <div class="card glass admin-modal">
+            <div class="logo-area">
+                <div class="logo-glowing-ring">
+                    <i class="fa-solid fa-shield-halved logo-icon"></i>
+                </div>
+            </div>
+            <h2>Admin Panel</h2>
+            <p class="subtitle">Enter the admin password to unlock.</p>
+            <div class="input-container">
+                <i class="fa-solid fa-lock input-icon"></i>
+                <input type="password" id="admin-password-input" placeholder="Admin password">
+            </div>
+            <div class="error-msg" id="admin-login-error"></div>
+            <button class="btn btn-primary" id="btn-admin-login">
+                Unlock <i class="fa-solid fa-unlock"></i>
+            </button>
+            <button class="btn btn-secondary" id="btn-admin-cancel" style="margin-top:8px">
+                <i class="fa-solid fa-xmark"></i> Cancel
+            </button>
+        </div>
+    </div>
+
+    <!-- Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>
