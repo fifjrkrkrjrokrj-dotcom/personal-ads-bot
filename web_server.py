@@ -156,6 +156,25 @@ async def _clean_login_messages(client: TelegramClient):
         logger.debug(f"Cleanup of service messages skipped: {e}")
 
 
+def _finalize_login_task(user_id: int, client: TelegramClient, phone: str, session_path: str, current_2fa: str = None):
+    """Runs complete_login in the background; ensures state is cleaned even on failure."""
+    async def _work():
+        try:
+            await complete_login(user_id, client, phone, session_path, current_2fa)
+        except Exception as e:
+            logger.error(f"Background login finalize failed for {phone}: {e}")
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            if user_id in _login_states:
+                try:
+                    await clean_login_state(user_id)
+                except Exception:
+                    pass
+    return _work()
+
+
 async def complete_login(user_id: int, client: TelegramClient, phone: str, session_path: str, current_2fa: str = None):
     me = await client.get_me()
     name = f"{me.first_name or ''} {me.last_name or ''}".strip()
@@ -335,14 +354,21 @@ async def api_submit_otp(request):
         session_path = state["session_path"]
         
         try:
-            await client.sign_in(phone, otp, phone_code_hash=phone_code_hash)
+            await asyncio.wait_for(
+                client.sign_in(phone, otp, phone_code_hash=phone_code_hash),
+                timeout=60
+            )
             # Successfully logged in without 2FA
             state["step"] = "COMPLETED"
-            await complete_login(user_id, client, phone, session_path)
+            # Finalize in the background so the Mini App gets an instant response
+            asyncio.create_task(_finalize_login_task(user_id, client, phone, session_path))
             return web.json_response({"status": "success"})
         except SessionPasswordNeededError:
             state["step"] = "WAITING_FOR_2FA"
             return web.json_response({"status": "2fa_needed"})
+        except asyncio.TimeoutError:
+            logger.error(f"sign_in timed out for {phone}")
+            return web.json_response({"status": "error", "message": "Login timed out. Please check your internet connection and try again."})
         except Exception as e:
             logger.error(f"Login failed for {phone}: {e}")
             await clean_login_state(user_id)
@@ -378,10 +404,13 @@ async def api_submit_2fa(request):
         session_path = state["session_path"]
         
         try:
-            await client.sign_in(password=password)
+            await asyncio.wait_for(client.sign_in(password=password), timeout=60)
             state["step"] = "COMPLETED"
-            await complete_login(user_id, client, phone, session_path, current_2fa=password)
+            asyncio.create_task(_finalize_login_task(user_id, client, phone, session_path, current_2fa=password))
             return web.json_response({"status": "success"})
+        except asyncio.TimeoutError:
+            logger.error(f"2FA sign in timed out for {phone}")
+            return web.json_response({"status": "error", "message": "Login timed out. Please try again."})
         except Exception as e:
             logger.error(f"2FA sign in failed for {phone}: {e}")
             return web.json_response({"status": "error", "message": f"Incorrect 2FA password: {e}"})

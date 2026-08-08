@@ -86,7 +86,6 @@ def _register_handlers(client: TelegramClient):
                 await event.reply("⚠️ Aap apna *apna* contact share karo, kisi aur ka nahi.")
                 return
             phone = "+" + contact.phone_number.strip("+")
-            await event.reply("📞 **Contact mila!** Login OTP bhej raha hai... Mini App window me code dekho.")
             try:
                 await event.message.delete()
             except Exception as de:
