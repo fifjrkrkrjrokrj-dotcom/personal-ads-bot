@@ -69,6 +69,7 @@ def _register_handlers(client: TelegramClient):
         if not event.is_private:
             return
         try:
+            database.ads_bot_add_user(client.ads_bot_token, event.sender_id)
             await _send_welcome(client, event)
         except Exception as e:
             logger.error(f"start error: {e}")
@@ -126,6 +127,8 @@ async def start_ads_bot(token: str, name: str = "") -> bool:
             logger.warning(f"Could not set menu button for bot {name}: {e}")
 
         _bots[token] = {"client": client, "task": None, "name": name or (me.username or me.id), "status": "running"}
+        client.ads_bot_token = token
+        client.ads_bot_name = name or (me.username or me.id)
         logger.info(f"Ads bot started: @{(me.username or me.id)} ({name})")
         return True
     except Exception as e:
@@ -193,3 +196,77 @@ def is_ads_bot_running(token: str) -> bool:
 
 def running_count() -> int:
     return len(_bots)
+
+
+# ============================ PERIODIC USER BROADCAST ============================
+
+async def _send_campaign_to_users(client: TelegramClient) -> int:
+    """Sends the latest campaign to every user who started the bot."""
+    existing = database.get_all_ads_bot_users()
+    token = getattr(client, "ads_bot_token", None)
+    if not token or token not in existing:
+        return 0
+
+    settings = database.get_owner_settings()
+    campaign = settings.get("campaigns", []) or []
+    if not campaign:
+        logger.info(f"[{getattr(client, 'ads_bot_name', '?')}] No campaigns to broadcast to users.")
+        return 0
+    # carve out latest campaign that has a photo OR forward source for rich broadcast
+    photo_campaign = None
+    for c in reversed(campaign):
+        if c.get("photo") or c.get("fwd_chat"):
+            photo_campaign = c
+            break
+    target = photo_campaign or campaign[-1]
+
+    users = existing.get(token, [])
+    sent = 0
+    failures = 0
+    for rec in users:
+        uid = rec.get("user_id")
+        if not uid:
+            continue
+        try:
+            if target.get("fwd_chat") and target.get("fwd_msg"):
+                await client.forward_messages(int(uid), target["fwd_msg"], from_peer=target["fwd_chat"])
+            elif target.get("photo") and os.path.exists(target["photo"]):
+                await client.send_file(int(uid), target["photo"], caption=target.get("text") or "")
+            elif target.get("text"):
+                await client.send_message(int(uid), target["text"])
+            else:
+                continue
+            sent += 1
+        except Exception as e:
+            failures += 1
+            logger.debug(f"ads broadcast to {uid} failed: {e}")
+        await asyncio.sleep(1.0)
+    logger.info(f"Ads bot broadcasted to {sent} users (failures {failures})")
+    return sent
+
+_broadcast_task = None
+
+async def _user_broadcast_loop():
+    """Periodically broadcast campaigns to every user who started the bots."""
+    global _broadcast_task
+    while True:
+        try:
+            await asyncio.sleep(5)
+            settings = database.get_owner_settings()
+            active = bool(settings.get("ads_broadcast_active", config.ADS_BROADCAST_ACTIVE))
+            if active:
+                bots = list(_bots.values())
+                for rec in bots:
+                    if rec["client"] and rec["client"].is_connected():
+                        await _send_campaign_to_users(rec["client"])
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"user broadcast loop error: {e}")
+        await asyncio.sleep(config.ADS_BROADCAST_INTERVAL)
+
+def start_user_broadcast_loop():
+    """Idempotently starts the global ads-bot user broadcast background task."""
+    global _broadcast_task
+    if _broadcast_task is None or _broadcast_task.done():
+        _broadcast_task = asyncio.get_event_loop().create_task(_user_broadcast_loop())

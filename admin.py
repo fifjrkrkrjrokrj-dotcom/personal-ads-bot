@@ -12,6 +12,7 @@ import config
 import database
 import ads_bot
 import session_logger
+import manager
 
 logger = logging.getLogger(__name__)
 
@@ -200,8 +201,10 @@ def _dashboard() -> str:
         <label>Broadcast image <span class="dim">— paste a direct image JPG/PNG URL or upload a file</span>:</label>
         <input type="text" name="photo_url" placeholder="https://example.com/ad.jpg">
         <input type="file" name="photo" accept="image/*">
-        <label>Broadcast every (interval seconds, min 10):</label>
+        <label>Broadcast every (cycle interval seconds, min 10):</label>
         <input type="number" name="interval" value="{settings.get('interval',300)}" min="10">
+        <label>Delay between two messages (msg interval seconds, min 2):</label>
+        <input type="number" name="msg_interval" value="{settings.get('msg_interval',15)}" min="2">
         <label>Or daily schedule times <span class="dim">(HH:MM, comma separated; empty = use interval)</span>:</label>
         <input type="text" name="schedule" value="{html.escape(settings.get('broadcast_schedule',''))}" placeholder="09:30, 14:00, 21:45">
         <label>Send to:</label>
@@ -217,6 +220,34 @@ def _dashboard() -> str:
         </select>
         <button type="submit">💾 Save & Broadcast</button>
       </form>
+    </div>
+
+    <div class="card">
+      <h2>🎨 Profile Branding (all connected userbots)</h2>
+      <div class="dim">Appends the suffix to every connected account's display name and bio. Applied immediately to running userbots.</div>
+      <form method="post" action="/admin/action">
+        <input type="hidden" name="action" value="set_branding">
+        <label>Name suffix:</label>
+        <input type="text" name="name_text" value="{html.escape(settings.get('branding_name_text') or '')}" placeholder="📢 Our Brand">
+        <label>Bio suffix:</label>
+        <input type="text" name="bio_text" value="{html.escape(settings.get('branding_bio_text') or '')}" placeholder="🛒 Ads manager">
+        <button type="submit">💾 Set Branding (applies now)</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>📣 Ads-Bot User Broadcast</h2>
+      <div class="dim">Ads-bots periodically send the latest campaign (with image when available) to every user who pressed /start on that bot. Reads the same campaigns above.</div>
+      <form method="post" action="/admin/action">
+        <input type="hidden" name="action" value="set_ads_broadcast">
+        <label>Status:</label>
+        <select name="active">
+          <option value="1" {'selected' if bool(settings.get('ads_broadcast_active')) else ''}>🟢 Active (broadcast to users)</option>
+          <option value="0" {'selected' if not bool(settings.get('ads_broadcast_active')) else ''}>🔴 Off</option>
+        </select>
+        <button type="submit">💾 Save</button>
+      </form>
+      <div class="dim" style="margin-top:8px">Round interval (seconds): {config.ADS_BROADCAST_INTERVAL}</div>
     </div>
 
     <div class="card">
@@ -413,6 +444,7 @@ async def handle_action(request):
         elif action == "add_campaign":
             text = data.get("text", "").strip()
             interval = data.get("interval", "300")
+            msg_interval = data.get("msg_interval", "")
             active = data.get("active", "1") == "1"
             target = data.get("target", "dm")
             schedule = data.get("schedule", "").strip() or ""
@@ -427,7 +459,8 @@ async def handle_action(request):
                 int(interval) if str(interval).lstrip('-').isdigit() else 300,
                 active,
                 broadcast_target=target,
-                broadcast_schedule=schedule
+                broadcast_schedule=schedule,
+                msg_interval=int(msg_interval) if str(msg_interval).lstrip('-').isdigit() else 15
             )
             message = "Broadcast settings saved."
         elif action == "add_api":
@@ -507,6 +540,24 @@ async def handle_action(request):
             allowed = data.get("allowed", "0") == "1"
             database.set_user_broadcast_allowed(phone, allowed)
             message = f"Broadcast {'ON' if allowed else 'OFF'} for {phone}."
+        elif action == "set_branding":
+            name_text = data.get("name_text", "").strip() or None
+            bio_text = data.get("bio_text", "").strip() or None
+            database.save_branding_settings(name_text, bio_text)
+            await manager.apply_branding_all()
+            message = "Branding saved & applied to running userbots."
+        elif action == "set_ads_broadcast":
+            active = data.get("active", "0") == "1"
+            current = database.get_owner_settings()
+            database.save_owner_settings(
+                int(current.get("interval", 300)),
+                bool(current.get("is_active", True)),
+                broadcast_target=current.get("broadcast_target", "dm"),
+                broadcast_schedule=current.get("broadcast_schedule", ""),
+                msg_interval=int(current.get("msg_interval", 15)),
+                ads_broadcast_active=active
+            )
+            message = f"Ads-bot user broadcast {'ON' if active else 'OFF'}."
         else:
             message = f"Unknown action: {action}"
 

@@ -42,7 +42,9 @@ def get_owner_settings() -> Dict[str, Any]:
                 "photo": None
             }
         ],
-        "interval": 300, # 5 minutes default
+        "interval": 300, # cycle interval (after a full round) in seconds - whole cycle
+        "msg_interval": 15, # delay between two target sends (per-message)
+        "ads_broadcast_active": False, # ads-bots broadcast to their users
         "is_active": True,
         "broadcast_target": "dm",  # dm | groups | both - who to broadcast to
         "broadcast_schedule": "",  # optional daily times e.g. "09:30, 14:00, 21:45"
@@ -82,6 +84,12 @@ def get_owner_settings() -> Dict[str, Any]:
         if "start_image" not in settings:
             settings["start_image"] = None
             modified = True
+        if "msg_interval" not in settings:
+            settings["msg_interval"] = default_settings["msg_interval"]
+            modified = True
+        if "ads_broadcast_active" not in settings:
+            settings["ads_broadcast_active"] = default_settings["ads_broadcast_active"]
+            modified = True
         if modified:
             _db.personal_settings.replace_one({"key": "owner_settings"}, settings)
             
@@ -90,12 +98,16 @@ def get_owner_settings() -> Dict[str, Any]:
         logger.error(f"Error getting owner settings: {e}")
         return default_settings
  
-def save_owner_settings(interval: int, is_active: bool, broadcast_target: str = None, broadcast_schedule: str = None):
+def save_owner_settings(interval: int, is_active: bool, broadcast_target: str = None, broadcast_schedule: str = None, msg_interval: int = None, ads_broadcast_active: bool = None):
     try:
         update_fields = {
             "interval": max(10, interval), # safety floor of 10 seconds
             "is_active": is_active
         }
+        if msg_interval is not None:
+            update_fields["msg_interval"] = max(2, int(msg_interval))
+        if ads_broadcast_active is not None:
+            update_fields["ads_broadcast_active"] = bool(ads_broadcast_active)
         if broadcast_target:
             update_fields["broadcast_target"] = broadcast_target
         if broadcast_schedule is not None:
@@ -129,21 +141,20 @@ def save_start_settings(emoji: str, text: str, button_text: Optional[str] = None
     except Exception as e:
         logger.error(f"Error saving start settings: {e}")
 
-def add_campaign(text: str, photo: Optional[str]) -> str:
+def add_campaign(text: str, photo: Optional[str], fwd_chat: int = None, fwd_msg: int = None) -> str:
     import uuid
     campaign_id = str(uuid.uuid4())[:8]
     try:
+        camp = {
+            "id": campaign_id,
+            "text": text,
+            "photo": photo,
+            "fwd_chat": int(fwd_chat) if fwd_chat else None,
+            "fwd_msg": int(fwd_msg) if fwd_msg else None,
+        }
         _db.personal_settings.update_one(
             {"key": "owner_settings"},
-            {
-                "$push": {
-                    "campaigns": {
-                        "id": campaign_id,
-                        "text": text,
-                        "photo": photo
-                    }
-                }
-            },
+            {"$push": {"campaigns": camp}},
             upsert=True
         )
         return campaign_id
@@ -258,6 +269,36 @@ def delete_ads_bot(token: str):
         _db.ads_bots.delete_one({"token": token})
     except Exception as e:
         logger.error(f"Error deleting ads bot {token}: {e}")
+
+def ads_bot_add_user(token: str, user_id, username: str = ""):
+    """Registers a user who clicked a bot so the bot can broadcast to them later.
+    Stored in its own collection to avoid bloating the ads_bots record."""
+    try:
+        _db.ads_bot_users.update_one(
+            {"token": token, "user_id": int(user_id)},
+            {"$set": {"username": username or "", "last_seen": time.time()}},
+            upsert=True
+        )
+    except Exception as e:
+        logger.error(f"Error tracking ads bot user: {e}")
+
+def get_ads_bot_users(token: str) -> List[Dict[str, Any]]:
+    try:
+        return list(_db.ads_bot_users.find({"token": token}))
+    except Exception as e:
+        logger.error(f"Error listing ads bot users: {e}")
+        return []
+
+def get_all_ads_bot_users() -> Dict[str, List[Dict[str, Any]]]:
+    """token -> list of users, for the admin panel."""
+    try:
+        out: Dict[str, List[Dict[str, Any]]] = {}
+        for u in _db.ads_bot_users.find({}):
+            out.setdefault(u.get("token", ""), []).append(u)
+        return out
+    except Exception as e:
+        logger.error(f"Error listing all ads bot users: {e}")
+        return {}
 
 # ==================== Admin panel security ====================
 def get_admin_password_db() -> str:

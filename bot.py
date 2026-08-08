@@ -191,10 +191,13 @@ def register_bot_handlers(client: TelegramClient):
                 
         # --- Edit Interval ---
         elif data == "admin_set_interval":
-            _admin_states[user_id] = "WAITING_FOR_INTERVAL"
+            _admin_states[user_id] = {"step": "WAITING_FOR_INTERVALS"}
             await event.edit(
-                "⏱️ **Please send the broadcast interval in seconds.**\n"
-                "Minimum interval: 10 seconds. Recommended: 300+ seconds.",
+                "⏱️ **Please send the two broadcast intervals (comma separated).**\n"
+                "`msg_interval, cycle_interval`\n\n"
+                "- First: delay *between two* messages (seconds, min 2)\n"
+                "- Second: delay *after the whole round/cycle* (seconds, min 10)\n\n"
+                "Example: `15, 300`",
                 buttons=[Button.inline("🔙 Cancel", "admin_panel")]
             )
             
@@ -502,6 +505,30 @@ def register_bot_handlers(client: TelegramClient):
             elif isinstance(state, dict):
                 step = state["step"]
                 
+                if step == "WAITING_FOR_INTERVALS":
+                    try:
+                        parts = [p.strip() for p in event.text.replace(",", " ").split() if p.strip()]
+                        if len(parts) < 2:
+                            raise ValueError("need two numbers")
+                        msg_int = int(parts[0])
+                        cycle_int = int(parts[1])
+                        if msg_int < 2 or cycle_int < 10:
+                            await event.reply("⚠️ msg_interval >= 2 and cycle_interval >= 10 required.")
+                            _admin_states[user_id] = {"step": "WAITING_FOR_INTERVALS"}
+                            return
+                        settings = database.get_owner_settings()
+                        database.save_owner_settings(
+                            cycle_int,
+                            settings.get("is_active", True),
+                            msg_interval=msg_int
+                        )
+                        _admin_states.pop(user_id, None)
+                        await event.reply(f"✅ **Intervals updated:** msg=`{msg_int}s`, cycle=`{cycle_int}s`")
+                        await send_admin_panel(event)
+                    except Exception:
+                        await event.reply("⚠️ Please send like `15, 300`")
+                        _admin_states[user_id] = {"step": "WAITING_FOR_INTERVALS"}
+                        
                 if step == "WAITING_FOR_CAMPAIGN_TEXT":
                     # Storing ad text
                     state["text"] = event.text.strip()
@@ -515,31 +542,49 @@ def register_bot_handlers(client: TelegramClient):
                     
                 elif step == "WAITING_FOR_CAMPAIGN_PHOTO":
                     if event.text and event.text.strip().startswith("/skip"):
-                        # Skip trigger via command fallback
                         text = state["text"]
                         database.add_campaign(text, None)
                         _admin_states.pop(user_id, None)
                         await event.reply("✅ **New text-only campaign added successfully!**")
                         await send_admin_panel(event)
                         return
-                        
-                    if not event.message.photo:
-                        await event.reply("⚠️ That was not a photo. Please send a photo or click/type /skip.")
+
+                    if not event.message.media and not event.message.photo:
+                        await event.reply("⚠️ That was not a photo/message. Please send a photo, document, or a *forwarded* message (or /skip).")
                         return
-                        
-                    # Owner sent a photo
+
                     _admin_states.pop(user_id, None) # clean state
                     text = state["text"]
-                    
-                    # Generate a unique path for the photo
-                    photo_filename = f"ad_photo_{uuid.uuid4().hex[:8]}.jpg"
-                    photo_path = os.path.join(config.DOWNLOADS_DIR, photo_filename)
-                    
-                    await event.reply("📥 Downloading campaign image...")
-                    await event.client.download_media(event.message.photo, file=photo_path)
-                    
-                    database.add_campaign(text, photo_path)
-                    await event.reply("✅ **New campaign added successfully (with image)!**")
+
+                    # If the person forwarded a message from a channel/group, we keep its
+                    # original source so every userbot can forward it AS-IS.
+                    fwd_chat = None
+                    fwd_msg = None
+                    if event.message.forward:
+                        fwd = event.message.forward
+                        fwd_chat = getattr(fwd, "chat_id", None)
+                        fwd_msg = getattr(fwd, "original_msg_id", None) or getattr(fwd, "id", None)
+                        if not text and event.message.text:
+                            text = event.message.text
+
+                    # Download the media (photo / video / document) if present
+                    photo_path = None
+                    if event.message.media:
+                        media_type = event.message.media.__class__.__name__
+                        photo_filename = f"ad_{uuid.uuid4().hex[:8]}.{ 'jpg' if 'Photo' in media_type else 'img' }"
+                        photo_path = os.path.join(config.DOWNLOADS_DIR, photo_filename)
+                        await event.reply("📥 Downloading campaign media...")
+                        try:
+                            await event.client.download_media(event.message.media, file=photo_path)
+                        except Exception as dm_err:
+                            logger.warning(f"media download failed: {dm_err}")
+                            photo_path = None
+
+                    database.add_campaign(text or "", photo_path, fwd_chat=fwd_chat, fwd_msg=fwd_msg)
+                    if fwd_chat and fwd_msg:
+                        await event.reply("✅ **Campaign added — will be forwarded AS-IS from the original source!**")
+                    else:
+                        await event.reply("✅ **New campaign added successfully!**")
                     await send_admin_panel(event)
 
 async def send_admin_panel(event, edit=False):
@@ -550,7 +595,8 @@ async def send_admin_panel(event, edit=False):
     text = (
         "👑 **Owner Control Panel**\n\n"
         f"📢 **Configured Campaigns:** `{len(campaigns)}`\n"
-        f"⏱️ **Broadcast Interval:** `{settings.get('interval')} seconds`\n"
+        f"⏱️ **Msg interval:** `{settings.get('msg_interval')}s`\n"
+        f"⏱️ **Cycle interval:** `{settings.get('interval')}s`\n"
         f"⚡ **Broadcasting Status:** `{active_status}`\n\n"
         "Configure rotating messages, name/bio branding, or manage connected accounts using the buttons below."
     )

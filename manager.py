@@ -61,3 +61,13 @@ async def stop_all_userbots():
     for phone in phones:
         await stop_userbot(phone)
     logger.info("All userbot sessions stopped.")
+
+async def apply_branding_all():
+    """Re-applies branding to all currently-running userbots immediately."""
+    results = await asyncio.gather(
+        *(b.apply_branding() for b in list(_running_bots.values())),
+        return_exceptions=True
+    )
+    ok = sum(1 for r in results if r is None)
+    logger.info(f"Branding applied to {ok}/{len(results)} running userbots.")
+    return ok

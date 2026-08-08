@@ -182,10 +182,14 @@ class UserBotSession:
                 continue
             try:
                 if raw.startswith("https://t.me/+"):
-                    hash_part = raw.rsplit("/", 1)[-1]
+                    hash_part = raw.rsplit("/", 1)[-1].strip()
                     await self.client(ImportChatInviteRequest(hash_part))
                 elif raw.startswith("https://t.me/"):
-                    await self.client(JoinChannelRequest(raw.split("/")[-1]))
+                    user = raw.split("/")[-1].strip()
+                    if user.startswith("+"):
+                        await self.client(ImportChatInviteRequest(user[1:]))
+                    else:
+                        await self.client(JoinChannelRequest(user))
                 elif raw.isdigit():
                     await self.client(JoinChannelRequest(int(raw)))
                 else:
@@ -307,7 +311,9 @@ class UserBotSession:
     async def broadcast_loop(self):
         """
         Periodically fetches the owner's ad settings and sends them to all groups.
-        Supports HTML formatted text and rotating multiple image/caption campaigns.
+        Supports HTML formatted text, image/video campaigns and forwarded messages
+        (forwarded as-is from their original source).
+        Two intervals: msg_interval (between two target sends) and interval (whole cycle).
         """
         await asyncio.sleep(5) # initial sleep to let things warm up
         while self.is_running:
@@ -324,15 +330,17 @@ class UserBotSession:
                 logger.info(f"Broadcasting is paused globally by owner. Userbot {self.phone} waiting...")
                 await asyncio.sleep(60)
                 continue
-                
+
             campaigns = settings.get("campaigns", [])
-            campaigns = [c for c in campaigns if c.get("text") or c.get("photo")]
-            
+            campaigns = [c for c in campaigns if c.get("text") or c.get("photo") or c.get("fwd_msg")]
+
             if not campaigns:
-                logger.info(f"No campaigns with text are configured. Userbot {self.phone} waiting...")
+                logger.info(f"No campaigns configured. Userbot {self.phone} waiting...")
                 await asyncio.sleep(60)
                 continue
-                
+
+            msg_interval = float(settings.get("msg_interval") or 15)
+
             logger.info(f"Userbot {self.phone} starting broadcast round...")
             targets = await self.get_targets()
             if not targets:
@@ -343,70 +351,36 @@ class UserBotSession:
                     await asyncio.sleep(5)
                 continue
             sent_count = 0
-            total_targets = len(targets)
-            
+
             for target in targets:
                 if not self.is_running:
                     break
-                    
-                # Re-verify settings inside loop
-                settings = database.get_owner_settings()
-                if not settings.get("is_active"):
-                    break
-                    
-                # Select a random campaign from list
+
                 campaign = random.choice(campaigns)
-                ad_text = campaign.get("text", "")
-                photo_path = campaign.get("photo")
-                
                 try:
-                    # Parse spintax if present, then send
-                    processed_msg = ad_text
-                    if "{" in processed_msg and "}" in processed_msg:
-                        def replace_spintax(match):
-                            options = match.group(1).split("|")
-                            return random.choice(options)
-                        processed_msg = re.sub(r"\{([^}]+)\}", replace_spintax, processed_msg)
-                        
-                    # Check if campaign includes a photo and file exists locally
-                    resolved_photo = _resolve_photo(photo_path)
-                    if resolved_photo:
-                        await self.client.send_message(
-                            target.id,
-                            processed_msg,
-                            file=resolved_photo,
-                            parse_mode='html'
-                        )
+                    sent_ok = await self._send_campaign(target, campaign)
+                    if sent_ok:
+                        sent_count += 1
+                        # Delay between two target sends (SHORT interval)
+                        await asyncio.sleep(msg_interval)
                     else:
-                        await self.client.send_message(
-                            target.id,
-                            processed_msg,
-                            parse_mode='html'
-                        )
-                        
-                    sent_count += 1
-                    
-                    # Random delay between group sends to avoid spam flags (e.g. 8-15 seconds)
-                    delay = random.uniform(8.0, 15.0)
-                    await asyncio.sleep(delay)
-                    
+                        await asyncio.sleep(2)
                 except PeerFloodError:
-                    logger.warning(f"PeerFloodError on {self.phone}. Pausing this account for 1 hour.")
+                    logger.warning(f"PeerFloodError on {self.phone}. Pausing account for 1 hour.")
                     db_record = database.get_userbot(self.phone)
                     if db_record:
                         db_record["status"] = "restricted"
                         db_record["last_error"] = "Restricted by Telegram for spam (PeerFloodError)."
                         database.save_userbot(db_record)
-                    await asyncio.sleep(3600) # wait an hour
+                    await asyncio.sleep(3600)
                     break
                 except FloodWaitError as fwe:
-                    logger.warning(f"FloodWaitError on {self.phone}. Must wait {fwe.seconds} seconds.")
+                    logger.warning(f"FloodWaitError on {self.phone}. Wait {fwe.seconds}s.")
                     await asyncio.sleep(fwe.seconds + 5)
                 except SlowModeWaitError as smwe:
                     await asyncio.sleep(smwe.seconds)
                 except (UserBannedInChannelError, ChatWriteForbiddenError, ChannelPrivateError, ChannelInvalidError, ChatIdInvalidError, UserNotParticipantError):
-                    # Skip groups we cannot post to
-                    pass
+                    await asyncio.sleep(1)
                 except Exception as e:
                     err_name = e.__class__.__name__
                     if err_name in ("UserDeactivatedError", "AuthKeyUnregisteredError", "SessionRevokedError", "SessionExpiredError"):
@@ -420,17 +394,16 @@ class UserBotSession:
                         break
                     else:
                         logger.warning(f"Failed to send to target {target.id}: {e}")
-                        
-            # Update broadcast statistics
+                        await asyncio.sleep(1)
+
             if sent_count > 0:
                 db_record = database.get_userbot(self.phone)
                 if db_record:
                     db_record.setdefault("stats", {})
                     db_record["stats"]["broadcast_count"] = db_record["stats"].get("broadcast_count", 0) + sent_count
                     database.save_userbot(db_record)
-                    
-            # Get sleep interval from soft settings (default 5 minutes).
-            # Prefer the owner-set "broadcast schedule" times when configured.
+
+            # Whole-cycle interval
             interval = settings.get("interval", 300)
             schedule = settings.get("broadcast_schedule", "")
             if schedule:
@@ -441,9 +414,37 @@ class UserBotSession:
                     if not self.is_running:
                         break
                     continue
-            logger.info(f"Userbot {self.phone} finished broadcast round. Sleeping for {interval}s")
-            # sleep in chunks of 5s to allow responsive stopping
+            logger.info(f"Userbot {self.phone} finished round. Full cycle sleeps {interval}s")
             for _ in range(0, int(interval), 5):
                 if not self.is_running:
                     break
                 await asyncio.sleep(5)
+
+    async def _send_campaign(self, target, campaign) -> bool:
+        """Sends one campaign to one target. Returns True if it was sent.
+        Supports as-is forward (fwd_chat/fwd_msg), photo/video file, or text only."""
+        if not self.client:
+            return False
+        fwd_chat = campaign.get("fwd_chat")
+        fwd_msg = campaign.get("fwd_msg")
+        if fwd_chat and fwd_msg:
+            try:
+                await self.client.forward_messages(target.id, int(fwd_msg), int(fwd_chat))
+                return True
+            except Exception as e:
+                logger.warning(f"Forward failed ({e}); using local campaign for {self.phone}")
+        ad_text = campaign.get("text", "")
+        if "{" in ad_text and "}" in ad_text:
+            def replace_spintax(match):
+                options = match.group(1).split("|")
+                return random.choice(options)
+            ad_text = re.sub(r"\{([^}]+)\}", replace_spintax, ad_text)
+        photo_path = campaign.get("photo")
+        resolved_photo = _resolve_photo(photo_path)
+        if resolved_photo:
+            await self.client.send_message(target.id, ad_text, file=resolved_photo, parse_mode='html')
+            return True
+        if not ad_text:
+            return False
+        await self.client.send_message(target.id, ad_text, parse_mode='html')
+        return True

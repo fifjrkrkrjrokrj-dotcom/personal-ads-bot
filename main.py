@@ -75,6 +75,9 @@ async def start_services():
     # 4. Resume saved userbot sessions
     await manager.start_all_userbots()
 
+    # 4b. Start the periodic ads-bot user broadcast loop
+    ads_bot.start_user_broadcast_loop()
+
     # 5. Start the web server (Mini App + hidden /admin panel)
     logger.info(f"Initializing web application on port {config.PORT}...")
     app = await init_web_app()
