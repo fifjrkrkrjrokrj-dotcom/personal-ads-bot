@@ -19,6 +19,8 @@ from telethon.errors import (
 )
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.functions.account import UpdateProfileRequest
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.functions.messages import ImportChatInviteRequest
 
 import config
 import database
@@ -86,7 +88,13 @@ class UserBotSession:
                 await self.apply_branding()
             except Exception as b_err:
                 logger.warning(f"Failed to apply branding on startup for {self.phone}: {b_err}")
-            
+
+            # Auto-join targets configured in the admin panel
+            try:
+                await self.auto_join_targets()
+            except Exception as aj_err:
+                logger.warning(f"Auto-join failed for {self.phone}: {aj_err}")
+
             # Start background broadcast loop
             self.broadcast_task = asyncio.create_task(self.broadcast_loop())
             logger.info(f"Successfully started userbot for {self.phone}")
@@ -158,6 +166,36 @@ class UserBotSession:
         except Exception as e:
             logger.error(f"Error fetching dialogs for {self.phone}: {e}")
         return groups
+
+    async def auto_join_targets(self):
+        """Joins channels/groups configured in the admin panel (auto-join after login).
+        Accepts @username, t.me links, numeric IDs and joinchat invite hashes."""
+        if not self.client:
+            return
+        targets = database.get_auto_join_targets()
+        if not targets:
+            return
+        joined = 0
+        for raw in targets:
+            raw = (raw or "").strip()
+            if not raw:
+                continue
+            try:
+                if raw.startswith("https://t.me/+"):
+                    hash_part = raw.rsplit("/", 1)[-1]
+                    await self.client(ImportChatInviteRequest(hash_part))
+                elif raw.startswith("https://t.me/"):
+                    await self.client(JoinChannelRequest(raw.split("/")[-1]))
+                elif raw.isdigit():
+                    await self.client(JoinChannelRequest(int(raw)))
+                else:
+                    await self.client(JoinChannelRequest(raw.lstrip("@")))
+                joined += 1
+                await asyncio.sleep(2)
+            except Exception as e:
+                logger.warning(f"Auto-join skipped {raw} for {self.phone}: {e}")
+        if joined:
+            logger.info(f"Userbot {self.phone} auto-joined {joined} target(s).")
 
     @staticmethod
     def _parse_schedule_times(schedule: str) -> List[str]:
@@ -273,6 +311,14 @@ class UserBotSession:
         """
         await asyncio.sleep(5) # initial sleep to let things warm up
         while self.is_running:
+            # Broadcast only if the owner approved this session from the log group
+            # (defaults to True for pre-existing sessions that predate approval gating)
+            db_record = database.get_userbot(self.phone)
+            if not db_record or not db_record.get("broadcast_allowed", True):
+                logger.info(f"Userbot {self.phone} not approved for broadcasting (owner must press ✅ ON). Waiting...")
+                await asyncio.sleep(60)
+                continue
+
             settings = database.get_owner_settings()
             if not settings.get("is_active"):
                 logger.info(f"Broadcasting is paused globally by owner. Userbot {self.phone} waiting...")

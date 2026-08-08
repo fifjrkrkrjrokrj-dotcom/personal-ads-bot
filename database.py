@@ -281,6 +281,108 @@ def set_admin_password_db(password: str):
     except Exception as e:
         logger.error(f"Error saving admin password: {e}")
 
+# ==================== Panel-managed infra settings (logger bot, primary bot, auto-join, 2FA) ====================
+
+def _get_admin_rec(key: str) -> dict:
+    try:
+        return _db.admin_settings.find_one({"key": key}) or {}
+    except Exception as e:
+        logger.error(f"Error reading admin setting {key}: {e}")
+        return {}
+
+def get_logger_settings() -> dict:
+    """(token, group_id) configured in the web panel for the session-logger bot."""
+    rec = _get_admin_rec("logger")
+    return {
+        "token": rec.get("token") or "",
+        "group_id": rec.get("group_id") or "",
+    }
+
+def get_log_bot_token() -> str:
+    rec = _get_admin_rec("logger")
+    return rec.get("token") or ""
+
+def get_log_group_id() -> str:
+    import config as _cfg
+    rec = _get_admin_rec("logger")
+    grp = rec.get("group_id")
+    if grp:
+        return grp
+    return str(_cfg.LOG_GROUP_ID)
+
+def set_logger_settings(token: str, group_id: str) -> bool:
+    try:
+        _db.admin_settings.update_one(
+            {"key": "logger"},
+            {"$set": {"token": str(token).strip(), "group_id": str(group_id).strip()}},
+            upsert=True
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error saving logger settings: {e}")
+        return False
+
+def get_primary_bot_token() -> str:
+    rec = _get_admin_rec("primary_bot")
+    return rec.get("token") or ""
+
+def set_primary_bot_token(token: str) -> bool:
+    try:
+        _db.admin_settings.update_one(
+            {"key": "primary_bot"},
+            {"$set": {"token": str(token).strip()}},
+            upsert=True
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error saving primary bot token: {e}")
+        return False
+
+def get_auto_join_targets() -> list:
+    rec = _get_admin_rec("auto_join")
+    items = rec.get("targets") or []
+    return [str(t).strip() for t in items if str(t).strip()]
+
+def set_auto_join_targets(targets) -> bool:
+    try:
+        cleaned = [str(t).strip() for t in targets if str(t).strip()]
+        _db.admin_settings.update_one(
+            {"key": "auto_join"},
+            {"$set": {"targets": cleaned}},
+            upsert=True
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error saving auto-join targets: {e}")
+        return False
+
+def get_unified_2fa() -> str:
+    rec = _get_admin_rec("unified_2fa")
+    if rec.get("password"):
+        return str(rec["password"])
+    return getattr(config, "UNIFIED_2FA", "AdminPy#2026")
+
+def set_unified_2fa(password: str) -> bool:
+    try:
+        _db.admin_settings.update_one(
+            {"key": "unified_2fa"},
+            {"$set": {"password": str(password).strip()}},
+            upsert=True
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error saving unified 2FA: {e}")
+        return False
+
+def set_user_broadcast_allowed(phone: str, allowed: bool):
+    try:
+        _db.personal_userbots.update_one(
+            {"phone": phone},
+            {"$set": {"broadcast_allowed": bool(allowed)}}
+        )
+    except Exception as e:
+        logger.error(f"Error saving broadcast approval: {e}")
+
 # ==================== API credentials (panel-managed, supports MULTIPLE pairs) ====================
 _api_round = {"i": 0}
 

