@@ -25,6 +25,16 @@ import database
 
 logger = logging.getLogger(__name__)
 
+def _resolve_photo(photo):
+    """Return a local file path for a campaign photo (accepts local path or http(s) URL)."""
+    if not photo:
+        return None
+    if isinstance(photo, str) and photo.startswith(("http://", "https://")):
+        return config.fetch_remote_image(photo)
+    if os.path.exists(photo):
+        return photo
+    return None
+
 class UserBotSession:
     def __init__(self, phone: str):
         self.phone = phone
@@ -313,11 +323,12 @@ class UserBotSession:
                         processed_msg = re.sub(r"\{([^}]+)\}", replace_spintax, processed_msg)
                         
                     # Check if campaign includes a photo and file exists locally
-                    if photo_path and os.path.exists(photo_path):
+                    resolved_photo = _resolve_photo(photo_path)
+                    if resolved_photo:
                         await self.client.send_message(
                             target.id,
                             processed_msg,
-                            file=photo_path,
+                            file=resolved_photo,
                             parse_mode='html'
                         )
                     else:

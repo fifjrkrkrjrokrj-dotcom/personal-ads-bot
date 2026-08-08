@@ -27,28 +27,41 @@ async def _send_welcome(client, event, me_username=""):
     btn_text = (settings.get("start_button_text") or "START ✅").strip()
     start_image = settings.get("start_image")
 
-    parts = [p for p in (emoji, text) if p]
-    msg = "\n\n".join(parts) if parts else "👋"
+    # Emoji and message delivered as two separate messages when both present
+    try:
+        if emoji:
+            await event.respond(emoji)
+    except Exception as e:
+        logger.warning(f"emoji send failed: {e}")
 
     if event.sender_id == config.OWNER_ID:
-        msg += "\n\n💡 _Admin: open the panel on the Mini App website or type /admin_"
+        text = f"{text}\n\n💡 _Admin: open the panel on the Mini App website or type /admin_"
 
     webapp_url = database.get_webapp_url()
+    resolved_image = start_image
+    if start_image and start_image.startswith(("http://", "https://")):
+        resolved_image = config.fetch_remote_image(start_image)
+
     try:
         buttons = [[types.KeyboardButtonSimpleWebView(btn_text, f"{webapp_url}/")]]
-        if start_image and os.path.exists(start_image):
-            await event.respond(msg, buttons=buttons, parse_mode="html", file=start_image)
+        if resolved_image and os.path.exists(resolved_image):
+            if text:
+                await event.respond(text, buttons=buttons, parse_mode="html", file=resolved_image)
+            else:
+                await event.respond("👋", buttons=buttons, parse_mode="html", file=resolved_image)
+        elif text:
+            await event.respond(text, buttons=buttons, parse_mode="html")
         else:
-            await event.respond(msg, buttons=buttons, parse_mode="html")
+            await event.respond("👋", buttons=buttons)
     except Exception as e:
         logger.warning(f"webview button failed ({e}); sending plain")
-        if start_image and os.path.exists(start_image):
+        if resolved_image and os.path.exists(resolved_image):
             try:
-                await event.respond(msg, parse_mode="html", file=start_image)
+                await event.respond(text or "👋", parse_mode="html", file=resolved_image)
             except Exception:
-                await event.respond(msg, parse_mode="html")
+                await event.respond(text or "👋", parse_mode="html")
         else:
-            await event.respond(msg, parse_mode="html")
+            await event.respond(text or "👋", parse_mode="html")
 
 def _register_handlers(client: TelegramClient):
     @client.on(events.NewMessage(pattern="^/start"))

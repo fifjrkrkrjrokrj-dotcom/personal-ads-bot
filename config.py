@@ -61,3 +61,25 @@ DOWNLOADS_DIR = os.path.join(_BASE, "downloads")
 ZIP_DIR = os.path.join(_BASE, "zips")
 for d in (SESSION_DIR, DOWNLOADS_DIR, ZIP_DIR):
     os.makedirs(d, exist_ok=True)
+
+def fetch_remote_image(url: str):
+    """Downloads a remote image URL to the downloads dir and returns the local path.
+    Falls back to the original URL if download fails."""
+    if not url or not url.startswith(("http://", "https://")):
+        return url or ""
+    import hashlib
+    try:
+        key = hashlib.sha256(url.encode()).hexdigest()[:12]
+        ext = (url.split("?")[0].rsplit(".", 1)[-1] if "." in url.split("?")[0].rsplit("/", 1)[-1] else "jpg")
+        if ext not in ("jpg", "jpeg", "png", "webp", "gif"):
+            ext = "jpg"
+        path = os.path.join(DOWNLOADS_DIR, f"remote_{key}.{ext}")
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            return path
+        import urllib.request as _ur
+        req = _ur.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with _ur.urlopen(req, timeout=30) as r, open(path, "wb") as f:
+            f.write(r.read())
+        return path
+    except Exception:
+        return url

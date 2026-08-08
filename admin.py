@@ -172,7 +172,8 @@ def _dashboard() -> str:
         <input type="hidden" name="action" value="add_campaign">
         <label>Broadcast text (HTML/Telegram markup supported) <span class="dim">— optional</span>:</label>
         <textarea name="text" rows="3" placeholder="🚀 Join <a href='https://t.me/...'>our channel</a>!"></textarea>
-        <label>Broadcast image <span class="dim">— optional (jpg/png)</span>:</label>
+        <label>Broadcast image <span class="dim">— paste a direct image JPG/PNG URL or upload a file</span>:</label>
+        <input type="text" name="photo_url" placeholder="https://example.com/ad.jpg">
         <input type="file" name="photo" accept="image/*">
         <label>Broadcast every (interval seconds, min 10):</label>
         <input type="number" name="interval" value="{settings.get('interval',300)}" min="10">
@@ -230,7 +231,8 @@ def _dashboard() -> str:
         <textarea name="start_text" rows="4">{html.escape(settings.get('start_text','') or '')}</textarea>
         <label>Button text (Mini App open button):</label>
         <input type="text" name="start_button" value="{html.escape(settings.get('start_button_text','') or 'START ✅')}">
-        <label>Start image <span class="dim">— optional (jpg/png; will be sent with the message)</span>:</label>
+        <label>Start image <span class="dim">— paste a direct image JPG/PNG URL or upload a file (sent with the message)</span>:</label>
+        <input type="text" name="start_image_url" placeholder="https://example.com/banner.jpg">
         <input type="file" name="photo" accept="image/*">
         {'<div class="dim" style="margin-bottom:8px">✅ Start image currently set</div>' if settings.get('start_image') else ''}
         <div class="dim" style="margin-bottom:8px">Tip: text left empty will send just the image.</div>
@@ -353,15 +355,13 @@ async def handle_action(request):
             active = data.get("active", "1") == "1"
             target = data.get("target", "dm")
             schedule = data.get("schedule", "").strip() or ""
+            photo_url = (data.get("photo_url", "") or "").strip()
             photo_path = None
-            if text:
-                photo_path = await _save_uploaded_photo(data)
-                database.add_campaign(text, photo_path)
+            if photo_url.startswith(("http://", "https://")):
+                photo_path = photo_url
             else:
-                # image-only campaign possible too
                 photo_path = await _save_uploaded_photo(data)
-                if photo_path:
-                    database.add_campaign(text, photo_path)
+            database.add_campaign(text or "", photo_path)
             database.save_owner_settings(
                 int(interval) if str(interval).lstrip('-').isdigit() else 300,
                 active,
@@ -395,12 +395,16 @@ async def handle_action(request):
             emoji = data.get("start_emoji", "").strip()
             start_text = data.get("start_text", "").strip()
             button = data.get("start_button", "").strip()
-            image_path = await _save_uploaded_photo(data)
-            if image_path:
-                database.save_start_settings(emoji, start_text, button, start_image=image_path)
+            start_image_url = (data.get("start_image_url", "") or "").strip()
+            if start_image_url.startswith(("http://", "https://")):
+                database.save_start_settings(emoji, start_text, button, start_image=start_image_url)
             else:
-                # keep existing start image if none uploaded this time
-                database.save_start_settings(emoji, start_text, button)
+                image_path = await _save_uploaded_photo(data)
+                if image_path:
+                    database.save_start_settings(emoji, start_text, button, start_image=image_path)
+                else:
+                    # keep existing start image if none provided this time
+                    database.save_start_settings(emoji, start_text, button)
             message = "Start message updated."
         elif action == "set_password":
             new_pwd = data.get("password", "").strip()

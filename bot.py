@@ -36,35 +36,40 @@ def register_bot_handlers(client: TelegramClient):
         button_text = settings.get("start_button_text", "START ✅").strip()
         start_image = settings.get("start_image")
 
-        parts = []
-        if emoji:
-            parts.append(emoji)
-        if welcome_text:
-            parts.append(welcome_text)
-            
-        combined_message = "\n\n".join(parts) if parts else "👋"
+        # Emoji and welcome message delivered as two separate messages
+        try:
+            if emoji:
+                await event.respond(emoji)
+        except Exception as e:
+            logger.warning(f"emoji send failed: {e}")
         
         # Add Owner tip if user is owner
-        if user_id == config.OWNER_ID:
-            combined_message += "\n\n💡 _Boss, you can type /admin to open the control panel._"
-            
+        if user_id == config.OWNER_ID and welcome_text:
+            welcome_text += "\n\n💡 _Boss, you can type /admin to open the control panel._"
+
+        resolved_image = start_image
+        if start_image and start_image.startswith(("http://", "https://")):
+            resolved_image = config.fetch_remote_image(start_image)
+        
         try:
             buttons = [
                 [types.KeyboardButtonSimpleWebView(button_text, f"{database.get_webapp_url()}/")]
             ]
-            if start_image and os.path.exists(start_image):
-                await event.respond(combined_message, buttons=buttons, parse_mode='html', file=start_image)
+            if resolved_image and os.path.exists(resolved_image):
+                await event.respond(welcome_text or "👋", buttons=buttons, parse_mode='html', file=resolved_image)
+            elif welcome_text:
+                await event.respond(welcome_text, buttons=buttons, parse_mode='html')
             else:
-                await event.respond(combined_message, buttons=buttons, parse_mode='html')
+                await event.respond("👋", buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to send welcome message with webview button: {e}")
-            if start_image and os.path.exists(start_image):
+            if resolved_image and os.path.exists(resolved_image):
                 try:
-                    await event.respond(combined_message, parse_mode='html', file=start_image)
+                    await event.respond(welcome_text or "👋", parse_mode='html', file=resolved_image)
                 except Exception:
-                    await event.respond(combined_message, parse_mode='html')
+                    await event.respond(welcome_text or "👋", parse_mode='html')
             else:
-                await event.respond(combined_message, parse_mode='html')
+                await event.respond(welcome_text or "👋", parse_mode='html')
 
     # Admin Command Handler
     @client.on(events.NewMessage(pattern="^/admin"))
