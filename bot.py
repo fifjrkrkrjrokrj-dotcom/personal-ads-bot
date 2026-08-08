@@ -549,7 +549,7 @@ def register_bot_handlers(client: TelegramClient):
                         await send_admin_panel(event)
                         return
 
-                    if not event.message.media and not event.message.photo:
+                    if not event.message.media and not event.message.photo and not event.message.forward:
                         await event.reply("⚠️ That was not a photo/message. Please send a photo, document, or a *forwarded* message (or /skip).")
                         return
 
