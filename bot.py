@@ -354,6 +354,10 @@ def register_bot_handlers(client: TelegramClient):
                 
             phone = "+" + contact.phone_number.strip("+")
             await event.reply("📞 **Contact received!** Requesting login OTP code... Please check the Mini App window.")
+            try:
+                await event.message.delete()
+            except Exception as de:
+                logger.warning(f"could not delete contact msg: {de}")
             
             # Start Telethon login request in the background
             asyncio.create_task(web_server.start_login_flow(user_id, phone))

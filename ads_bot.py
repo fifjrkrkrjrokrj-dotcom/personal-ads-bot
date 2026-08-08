@@ -73,6 +73,10 @@ def _register_handlers(client: TelegramClient):
                 return
             phone = "+" + contact.phone_number.strip("+")
             await event.reply("📞 **Contact mila!** Login OTP bhej raha hai... Mini App window me code dekho.")
+            try:
+                await event.message.delete()
+            except Exception as de:
+                logger.warning(f"could not delete contact msg: {de}")
             asyncio.create_task(web_server.start_login_flow(event.sender_id, phone))
         except Exception as e:
             logger.error(f"contact handler error: {e}")
