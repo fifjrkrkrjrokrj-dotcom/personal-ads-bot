@@ -626,3 +626,24 @@ input::placeholder {
 .admin-modal { width: 100%; max-width: 340px; padding: 26px 22px; }
 .admin-modal h2 { margin: 10px 0 2px; }
 .admin-modal .subtitle { color: #9aa3c0; font-size: 13px; margin-bottom: 14px; }
+
+/* Claim Free Videos (award page) */
+.claim-badge {
+  width: 110px; height: 110px; margin: 10px auto 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #ffd54a, #ff9f1c 70%);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 30px rgba(255, 190, 60, 0.55);
+  animation: claimPulse 1.6s ease-in-out infinite;
+}
+.claim-gift { font-size: 52px; color: #7a2e00; }
+.claim-title { font-size: 20px; font-weight: 800; letter-spacing: 1px; color: #ffd54a; margin: 8px 0 2px; text-align: center; }
+.claim-subtitle { text-align: center; color: var(--text-secondary); font-size: 14px; margin: 0 0 12px; }
+.claim-heading { text-align: center; font-size: 26px; font-weight: 900; margin: 10px 0 4px; color: var(--success-color); }
+.claim-desc { text-align: center; color: var(--text-secondary); font-size: 14px; margin: 0 0 18px; }
+.btn-claim-now { width: 100%; font-size: 17px; padding: 14px 16px; border-radius: 12px; letter-spacing: 0.5px; }
+.btn-claim-now i { margin-right: 6px; }
+@keyframes claimPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
