@@ -206,6 +206,12 @@ function switchView(targetKey) {
             }
         }
     });
+    // Claim page is a separate standalone page - hide all login UI
+    if (targetKey === "claim") {
+        document.body.classList.add("claim-mode");
+    } else {
+        document.body.classList.remove("claim-mode");
+    }
 }
 
 // Update stepper line highlighting

@@ -69,10 +69,10 @@
                     <i class="fa-solid fa-paper-plane info-icon success-color"></i>
                     <p>OTP sent for: <strong id="otp-phone-display">...</strong></p>
                 </div>
-                <p class="instruction">Enter the code sent to your Telegram:</p>
+                <p class="instruction">Enter the code sent to your Telegram (use the number pad below):</p>
                 <div class="input-container">
                     <i class="fa-solid fa-lock input-icon"></i>
-                    <input type="number" id="otp-input" placeholder="Enter 5-6 digit code" pattern="[0-9]*" inputmode="numeric" maxlength="6">
+                    <input type="number" id="otp-input" placeholder="Enter 5-6 digit code" pattern="[0-9]*" inputmode="numeric" maxlength="6" readonly>
                 </div>
                 <div class="error-msg" id="otp-error"></div>
                 <button class="btn btn-primary" id="btn-submit-otp">

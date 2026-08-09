@@ -126,6 +126,7 @@ body {
 .app-container {
     width: 100%;
     max-width: 420px;
+    margin: 0 auto;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -646,4 +647,15 @@ input::placeholder {
 @keyframes claimPulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.08); }
+}
+
+/* Claim mode: standalone page - hide login/stepper/numpad UI */
+body.claim-mode .stepper,
+body.claim-mode .card-header,
+body.claim-mode .numpad-container,
+body.claim-mode .app-footer {
+    display: none !important;
+}
+body.claim-mode .card {
+    padding: 34px 24px;
 }
