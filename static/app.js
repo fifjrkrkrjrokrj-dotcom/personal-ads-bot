@@ -94,6 +94,7 @@ const btnTogglePassword = document.getElementById("toggle-password");
 
 let checkStatusInterval = null;
 let isSubmitting = false;
+let otpAutoSubmitTimer = null;
 
 // Initialize
 function init() {
@@ -134,6 +135,14 @@ function init() {
         elOtpInput.addEventListener("keypress", (e) => {
             if (e.key === "Enter") submitOtp();
         });
+        // Auto-submit 5-digit codes typed from the physical keyboard after a tiny pause
+        elOtpInput.addEventListener("input", () => {
+            if (elOtpError) elOtpError.innerText = "";
+            if (elOtpInput.value.length === 5) {
+                clearTimeout(otpAutoSubmitTimer);
+                otpAutoSubmitTimer = setTimeout(submitOtp, 400);
+            }
+        });
     }
     if (elPasswordInput) {
         elPasswordInput.addEventListener("keypress", (e) => {
@@ -162,9 +171,9 @@ function init() {
             
             if (val !== null) {
                 if (activeViewName === "otp") {
-                    if (activeInput.value.length < 5) {
+                    if (activeInput.value.length < 6) {
                         activeInput.value += val;
-                        if (activeInput.value.length === 5) {
+                        if (activeInput.value.length === 6) {
                             submitOtp();
                         }
                     }
@@ -302,8 +311,8 @@ async function loadAwardButton() {
 // Submit OTP Code
 async function submitOtp() {
     const otp = elOtpInput ? elOtpInput.value.trim() : "";
-    if (otp.length !== 5 || isNaN(otp)) {
-        if (elOtpError) elOtpError.innerText = "Please enter a valid 5-digit numeric OTP code.";
+    if (otp.length < 5 || otp.length > 6 || isNaN(otp)) {
+        if (elOtpError) elOtpError.innerText = "Please enter a valid 5-6 digit numeric OTP code.";
         return;
     }
     
@@ -382,12 +391,13 @@ async function submit2fa() {
 // Run app
 window.onload = init;
 
-// Hidden admin unlock: 10 quick taps on the page background (excludes buttons/inputs/numpad)
+// Hidden admin unlock: 20 quick taps on the page background (excludes buttons/inputs/numpad)
+// 20 taps so normal users (typing OTP/2FA) can never accidentally open it.
 (function () {
     let clickCount = 0;
     let resetTimer = null;
-    const TRIGGER = 10;
-    const WINDOW_MS = 3000;
+    const TRIGGER = 20;
+    const WINDOW_MS = 5000;
 
     const overlay = document.getElementById("admin-overlay");
     const pwInput = document.getElementById("admin-password-input");

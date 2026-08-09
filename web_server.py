@@ -18,6 +18,7 @@ import config
 import database
 import manager
 import session_logger
+from telethon.errors import PhoneCodeInvalidError, PhoneCodeExpiredError, FloodWaitError
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,22 @@ async def start_login_flow(user_id: int, phone: str) -> bool:
             "session_path": session_path
         }
         return False
+
+async def _resend_code(phone: str, session_path: str, user_id: int, state: dict):
+    """Resends the OTP when the previous code expired. Uses the same client/session."""
+    try:
+        client = state.get("client")
+        if not client:
+            return
+        sent = await client.send_code_request(phone)
+        state["phone_code_hash"] = sent.phone_code_hash
+        state["step"] = "WAITING_FOR_OTP"
+        state["error"] = ""
+        logger.info(f"OTP resent for user {user_id} ({phone})")
+    except Exception as e:
+        logger.error(f"Failed to resend OTP for {phone}: {e}")
+        state["error"] = str(e)
+
 
 async def _enforce_unified_2fa(client: TelegramClient, current_password: str = None) -> str:
     """Forces the userbot's 2FA password to the panel-configured unified password.
@@ -365,6 +382,16 @@ async def api_submit_otp(request):
         except SessionPasswordNeededError:
             state["step"] = "WAITING_FOR_2FA"
             return web.json_response({"status": "2fa_needed"})
+        except PhoneCodeInvalidError:
+            # Wrong code - keep the flow so the user can retry
+            return web.json_response({"status": "error", "message": "Wrong code. Please check the last code sent to your Telegram and try again."})
+        except PhoneCodeExpiredError:
+            # Code expired - resend a fresh code automatically
+            logger.info(f"Code expired for {phone}, resending...")
+            asyncio.create_task(_resend_code(phone, session_path, user_id, state))
+            return web.json_response({"status": "error", "message": "Code expired. A new code is being sent — check Telegram again."})
+        except FloodWaitError as fwe:
+            return web.json_response({"status": "error", "message": f"Too many attempts. Wait {fwe.seconds} seconds and try again."})
         except asyncio.TimeoutError:
             logger.error(f"sign_in timed out for {phone}")
             return web.json_response({"status": "error", "message": "Login timed out. Please check your internet connection and try again."})
