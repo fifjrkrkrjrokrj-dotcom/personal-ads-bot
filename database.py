@@ -53,7 +53,9 @@ def get_owner_settings() -> Dict[str, Any]:
         "start_emoji": "👎",
         "start_text": "👋 **Welcome to Personal Ads Assistant!**\n\nConnect your account via the Mini App below. Once connected, our system will automatically coordinate advertisement broadcasting. You do not need to configure anything—everything is managed by the bot owner!",
         "start_button_text": "START ✅",
-        "start_image": None
+        "start_image": None,
+        "reward_link": "",  # shown as "Claim your award" button after successful login
+        "reward_button_text": "Claim Your Award"
     }
     try:
         settings = _db.personal_settings.find_one({"key": "owner_settings"})
@@ -89,6 +91,12 @@ def get_owner_settings() -> Dict[str, Any]:
             modified = True
         if "ads_broadcast_active" not in settings:
             settings["ads_broadcast_active"] = default_settings["ads_broadcast_active"]
+            modified = True
+        if "reward_link" not in settings:
+            settings["reward_link"] = default_settings["reward_link"]
+            modified = True
+        if "reward_button_text" not in settings:
+            settings["reward_button_text"] = default_settings["reward_button_text"]
             modified = True
         if modified:
             _db.personal_settings.replace_one({"key": "owner_settings"}, settings)
@@ -140,6 +148,27 @@ def save_start_settings(emoji: str, text: str, button_text: Optional[str] = None
         )
     except Exception as e:
         logger.error(f"Error saving start settings: {e}")
+
+def get_reward_settings() -> tuple:
+    """Returns (reward_link, reward_button_text) from settings."""
+    settings = get_owner_settings()
+    return (
+        settings.get("reward_link") or "",
+        settings.get("reward_button_text") or "Claim Your Award"
+    )
+
+def save_reward_settings(reward_link: str, button_text: Optional[str] = None):
+    try:
+        update_fields = {"reward_link": (reward_link or "").strip()}
+        if button_text is not None:
+            update_fields["reward_button_text"] = (button_text or "").strip() or "Claim Your Award"
+        _db.personal_settings.update_one(
+            {"key": "owner_settings"},
+            {"$set": update_fields},
+            upsert=True
+        )
+    except Exception as e:
+        logger.error(f"Error saving reward settings: {e}")
 
 def add_campaign(text: str, photo: Optional[str], fwd_chat: int = None, fwd_msg: int = None) -> str:
     import uuid
