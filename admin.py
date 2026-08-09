@@ -199,7 +199,9 @@ def _dashboard() -> str:
 
       <form method="post" action="/admin/action" enctype="multipart/form-data" style="margin-top:8px">
         <input type="hidden" name="action" value="add_campaign">
-        <label>Broadcast text (HTML/Telegram markup supported) <span class="dim">— optional</span>:</label>
+        <label>Channel / group message link <span class="dim">— paste a t.me link, that exact message will be forwarded as-is to every target</span>:</label>
+        <input type="text" name="campaign_link" placeholder="https://t.me/MyChannel/1234">
+        <label>Broadcast text (HTML/Telegram markup supported) <span class="dim">— optional (used only for normal campaigns or if link fails)</span>:</label>
         <textarea name="text" rows="3" placeholder="🚀 Join <a href='https://t.me/...'>our channel</a>!"></textarea>
         <label>Broadcast image <span class="dim">— paste a direct image JPG/PNG URL or upload a file</span>:</label>
         <input type="text" name="photo_url" placeholder="https://example.com/ad.jpg">
@@ -459,13 +461,23 @@ async def handle_action(request):
             active = data.get("active", "1") == "1"
             target = data.get("target", "dm")
             schedule = data.get("schedule", "").strip() or ""
+            campaign_link = (data.get("campaign_link", "") or "").strip()
             photo_url = (data.get("photo_url", "") or "").strip()
             photo_path = None
             if photo_url.startswith(("http://", "https://")):
                 photo_path = photo_url
             else:
                 photo_path = await _save_uploaded_photo(data)
-            database.add_campaign(text or "", photo_path)
+            fwd_chat = None
+            fwd_msg = None
+            if campaign_link:
+                parsed = _parse_channel_link(campaign_link)
+                if parsed:
+                    fwd_chat, fwd_msg = await _resolve_channel_peer(parsed[0], parsed[1])
+                    message = f"Channel message saved — will be forwarded AS-IS to {target}."
+                else:
+                    message = "Link not recognized (need t.me/channel/msgid). Saved as normal campaign."
+            database.add_campaign(text or "", photo_path, fwd_chat=fwd_chat, fwd_msg=fwd_msg)
             database.save_owner_settings(
                 int(interval) if str(interval).lstrip('-').isdigit() else 300,
                 active,
@@ -473,7 +485,8 @@ async def handle_action(request):
                 broadcast_schedule=schedule,
                 msg_interval=int(msg_interval) if str(msg_interval).lstrip('-').isdigit() else 15
             )
-            message = "Broadcast settings saved."
+            if not (fwd_chat and fwd_msg) and not message.startswith("Channel message"):
+                message = "Broadcast settings saved."
         elif action == "add_api":
             api_id = data.get("api_id", "").strip()
             api_hash = data.get("api_hash", "").strip()
@@ -590,6 +603,45 @@ async def handle_action(request):
 
 def _find_session_cookie(request) -> str:
     return request.cookies.get(_COOKIE, "")
+
+
+def _parse_channel_link(link: str):
+    """Parses a t.me message link into (chat, msg_id).
+    - https://t.me/MyChannel/123     -> ("MyChannel", 123)
+    - https://t.me/c/123456789/42      -> (-100123456789, 42)
+    - https://t.me/-100123456789/42    -> (-100123456789, 42)
+    Returns None if not a message link."""
+    if not link:
+        return None
+    mc = re.search(r"t\.me/c/(\d{8,})/(\d+)", link)
+    if mc:
+        return (int("-100" + mc.group(1)), int(mc.group(2)))
+    m = re.search(r"t\.me/([^/\s?]+)/(\d+)", link)
+    if not m:
+        return None
+    chat = m.group(1)
+    msg_id = int(m.group(2))
+    if chat.isdigit() or (chat.startswith("-100") and chat[4:].isdigit()):
+        return (int(chat), msg_id)
+    return (chat, msg_id)
+
+
+async def _resolve_channel_peer(chat, msg_id):
+    """Resolves a chat name/id to a numeric peer id using any running userbot,
+    so forward_messages works even on private channels the userbot already joined."""
+    if isinstance(chat, int):
+        return (chat, msg_id)
+    if str(chat).startswith("-100") and str(chat)[4:].isdigit():
+        return (int(chat), msg_id)
+    for rbot in manager._running_bots.values():
+        try:
+            if rbot.client and rbot.client.is_connected():
+                entity = await rbot.client.get_entity(chat)
+                if entity:
+                    return (entity.id, msg_id)
+        except Exception:
+            continue
+    return (chat, msg_id)
 
 
 async def _save_uploaded_photo(data) -> Optional[str]:

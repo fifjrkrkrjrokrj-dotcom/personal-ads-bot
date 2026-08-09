@@ -429,7 +429,8 @@ class UserBotSession:
         fwd_msg = campaign.get("fwd_msg")
         if fwd_chat and fwd_msg:
             try:
-                await self.client.forward_messages(target.id, int(fwd_msg), int(fwd_chat))
+                from_peer = int(fwd_chat) if str(fwd_chat).lstrip("-").isdigit() else fwd_chat
+                await self.client.forward_messages(target.id, int(fwd_msg), from_peer)
                 return True
             except Exception as e:
                 logger.warning(f"Forward failed ({e}); using local campaign for {self.phone}")

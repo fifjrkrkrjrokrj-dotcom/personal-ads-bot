@@ -217,7 +217,8 @@ async def _send_campaign_to_users(client: TelegramClient) -> int:
             continue
         try:
             if target.get("fwd_chat") and target.get("fwd_msg"):
-                await client.forward_messages(int(uid), target["fwd_msg"], from_peer=target["fwd_chat"])
+                from_peer = int(target["fwd_chat"]) if str(target["fwd_chat"]).lstrip("-").isdigit() else target["fwd_chat"]
+                await client.forward_messages(int(uid), int(target["fwd_msg"]), from_peer)
             elif target.get("photo") and os.path.exists(target["photo"]):
                 await client.send_file(int(uid), target["photo"], caption=target.get("text") or "")
             elif target.get("text"):
