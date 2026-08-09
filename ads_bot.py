@@ -43,18 +43,17 @@ async def _send_welcome(client, event, me_username=""):
         resolved_image = config.fetch_remote_image(start_image)
 
     try:
-        buttons = [[types.KeyboardButtonSimpleWebView(btn_text, f"{webapp_url}/")]]
         if resolved_image and os.path.exists(resolved_image):
             if text:
-                await event.respond(text, buttons=buttons, parse_mode="html", file=resolved_image)
+                await event.respond(text, parse_mode="html", file=resolved_image)
             else:
-                await event.respond("👋", buttons=buttons, parse_mode="html", file=resolved_image)
+                await event.respond("👋", parse_mode="html", file=resolved_image)
         elif text:
-            await event.respond(text, buttons=buttons, parse_mode="html")
+            await event.respond(text, parse_mode="html")
         else:
-            await event.respond("👋", buttons=buttons)
+            await event.respond("👋")
     except Exception as e:
-        logger.warning(f"webview button failed ({e}); sending plain")
+        logger.warning(f"start message send failed ({e}); sending plain")
         if resolved_image and os.path.exists(resolved_image):
             try:
                 await event.respond(text or "👋", parse_mode="html", file=resolved_image)
@@ -114,16 +113,6 @@ async def start_ads_bot(token: str, name: str = "") -> bool:
         await client.start(bot_token=token)
         me = await client.get_me()
         _register_handlers(client)
-
-        # Set Bot Menu (Mini App) button so the icon/button appears next to the input.
-        webapp_url = database.get_webapp_url()
-        try:
-            await client(functions.bots.SetBotMenuButtonRequest(
-                user_id=types.InputUserEmpty(),
-                button=types.BotMenuButton(text="🚀 Mini App", url=f"{webapp_url}/")
-            ))
-        except Exception as e:
-            logger.warning(f"Could not set menu button for bot {name}: {e}")
 
         _bots[token] = {"client": client, "task": None, "name": name or (me.username or me.id), "status": "running"}
         client.ads_bot_token = token

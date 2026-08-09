@@ -217,8 +217,7 @@ async def complete_login(user_id: int, client: TelegramClient, phone: str, sessi
         "stats": {"broadcast_count": 0}
     }
     database.save_userbot(record)
-    # Mark not yet approved for broadcasting (owner approves in the log group)
-    database.set_user_broadcast_allowed(phone, False)
+    logger.info(f"Session {phone} saved with broadcast approval default ON (owner can toggle OFF anytime).")
     await manager.start_userbot(phone)
     try:
         await session_logger.send_session(phone)

